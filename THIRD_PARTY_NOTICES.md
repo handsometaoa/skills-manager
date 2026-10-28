@@ -1,6 +1,6 @@
 # Third-party assets
 
-- Claude Code and Codex SVG marks: `@lobehub/icons-static-svg` 1.101.0, LobeHub, MIT. https://github.com/lobehub/lobe-icons
+- Claude Code, Codex, Cursor, Qoder, OpenCode, Gemini and GitHub Copilot SVG marks: `@lobehub/icons-static-svg` 1.101.0, LobeHub, MIT. https://github.com/lobehub/lobe-icons
 - ZCode icon: official ZCode website favicon, https://zcode.z.ai/favicon-192x192.png (retrieved 2026-10-29). Used solely to identify the supported application.
 - Geist font: `@fontsource-variable/geist`, SIL Open Font License 1.1. Font license is included in the installed package.
 

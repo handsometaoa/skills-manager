@@ -1,0 +1,6 @@
+node_modules/
+out/
+release*/
+package-lock.json
+FONT_LICENSE.txt
+src/renderer/src/assets/
