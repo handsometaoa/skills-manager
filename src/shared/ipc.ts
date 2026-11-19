@@ -1,11 +1,14 @@
 import type { Api } from './api'
 
 export const IPC_CHANNELS = {
+  createSkill: 'skill-create',
   addToLibrary: 'library-add',
   collectSkill: 'library-collect',
   setCompatibility: 'library-compatibility',
   installLibrary: 'library-install',
   deleteLibrary: 'library-delete',
+  restoreTrash: 'trash-restore',
+  deleteTrash: 'trash-delete',
   detail: 'skill-detail',
   readFile: 'skill-read-file',
   scan: 'scan',
@@ -16,5 +19,22 @@ export const IPC_CHANNELS = {
   install: 'install',
   uninstall: 'uninstall',
   openPath: 'open-path',
+  getSettings: 'settings-get',
+  saveSettings: 'settings-save',
+  setTheme: 'settings-theme',
+  pickDirectory: 'pick-directory',
+  writeFile: 'skill-write-file',
+  windowMinimize: 'window-minimize',
+  windowMaximizeToggle: 'window-maximize-toggle',
+  windowClose: 'window-close',
+  windowIsMaximized: 'window-is-maximized',
+  // Event channel: subscribe with ipcRenderer.on instead of invoke.
+  onWindowMaximizeChange: 'window-maximize-events',
+  getUpdateStatus: 'updater-get-status',
+  checkForUpdates: 'updater-check',
+  downloadUpdate: 'updater-download',
+  quitAndInstall: 'updater-quit-install',
+  // Event channel: subscribe with ipcRenderer.on instead of invoke.
+  onUpdateStatus: 'updater-events',
 } as const satisfies Record<keyof Api, string>
 export type IpcChannel = (typeof IPC_CHANNELS)[keyof typeof IPC_CHANNELS]

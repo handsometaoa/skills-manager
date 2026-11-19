@@ -34,26 +34,12 @@ export async function getSkillDetail(skill: Skill): Promise<SkillDetail> {
   return { skill, files, truncated }
 }
 export async function readSkillFile(skill: Skill, relativePath: string): Promise<string> {
-  if (
-    !relativePath ||
-    relativePath.length > 2048 ||
-    relativePath.includes('\\') ||
-    relativePath.includes(':') ||
-    relativePath.includes('\0') ||
-    path.isAbsolute(relativePath) ||
-    relativePath.split('/').some((p) => p === '..' || p === '.' || !p)
-  )
-    throw new Error('无效文件路径')
-  const root = await fs.realpath(skill.path)
-  const target = await fs.realpath(path.join(root, relativePath))
-  const within = path.relative(root, target)
-  if (!within || within.startsWith('..' + path.sep) || within === '..' || path.isAbsolute(within))
-    throw new Error('不允许浏览 Skill 目录之外的文件')
+  const target = await resolveSkillFile(skill, relativePath)
   const handle = await fs.open(target, 'r')
   try {
     const stat = await handle.stat()
     if (!stat.isFile()) throw new Error('只能查看普通文件')
-    const limit = 1024 * 1024
+    const limit = LIMIT
     if (stat.size > limit) throw new Error('文件超过 1MB，请使用“打开目录”在外部查看')
     const buffer = Buffer.alloc(Math.min(stat.size + 1, limit + 1))
     const { bytesRead } = await handle.read(buffer, 0, buffer.length, 0)
@@ -67,5 +53,54 @@ export async function readSkillFile(skill: Skill, relativePath: string): Promise
     }
   } finally {
     await handle.close()
+  }
+}
+
+const LIMIT = 1024 * 1024
+
+/** Shared path validation for browsing and editing Skill files. */
+async function resolveSkillFile(skill: Skill, relativePath: string): Promise<string> {
+  if (
+    !relativePath ||
+    relativePath.length > 2048 ||
+    relativePath.includes('\\') ||
+    relativePath.includes(':') ||
+    relativePath.includes('\0') ||
+    path.isAbsolute(relativePath) ||
+    relativePath.split('/').some((p) => p === '..' || p === '.' || !p)
+  )
+    throw new Error('无效文件路径')
+  const root = await fs.realpath(skill.path)
+  const target = await fs.realpath(path.join(root, relativePath)).catch(() => {
+    throw new Error('文件不存在于 Skill 目录中')
+  })
+  const within = path.relative(root, target)
+  if (!within || within.startsWith('..' + path.sep) || within === '..' || path.isAbsolute(within))
+    throw new Error('不允许访问 Skill 目录之外的文件')
+  return target
+}
+
+/** Overwrites an existing Skill file with UTF-8 text, atomically via tmp + rename. */
+export async function writeSkillFile(
+  skill: Skill,
+  relativePath: string,
+  content: string,
+): Promise<void> {
+  if (typeof content !== 'string') throw new Error('无效的文件内容')
+  if (Buffer.byteLength(content, 'utf8') > LIMIT)
+    throw new Error('内容超过 1MB，请使用“打开目录”在外部编辑')
+  const target = await resolveSkillFile(skill, relativePath)
+  const stat = await fs.lstat(target)
+  if (stat.isSymbolicLink() || !stat.isFile()) throw new Error('只能编辑普通文件')
+  // Keep the on-disk encoding contract: refuse to write anything the reader
+  // could not show back as UTF-8 text.
+  if (content.includes('\0')) throw new Error('内容包含非法字符')
+  const temporary = `${target}.tmp-${Date.now()}`
+  await fs.writeFile(temporary, content, 'utf8')
+  try {
+    await fs.rename(temporary, target)
+  } catch (e) {
+    await fs.rm(temporary, { force: true }).catch(() => {})
+    throw e
   }
 }

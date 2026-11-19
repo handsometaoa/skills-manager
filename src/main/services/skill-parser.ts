@@ -3,7 +3,7 @@ import path from 'node:path'
 import { parseDocument } from 'yaml'
 import type { Candidate } from '../../shared/types'
 
-export async function inspectSkill(dir: string): Promise<Candidate> {
+export async function inspectSkill(dir: string, preferredName?: string): Promise<Candidate> {
   const text = await fs.readFile(path.join(dir, 'SKILL.md'), 'utf8')
   const match = text.match(/^\uFEFF?---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/)
   if (!match) throw new Error(`${path.basename(dir)}：缺少 YAML frontmatter`)
@@ -17,7 +17,7 @@ export async function inspectSkill(dir: string): Promise<Candidate> {
     !metadata.description.trim()
   )
     throw new Error(`${path.basename(dir)}：name 和 description 必须是非空字符串`)
-  const name = path.basename(dir)
+  const name = preferredName ?? path.basename(dir)
   if (
     !/^[a-zA-Z0-9][a-zA-Z0-9._-]*$/.test(name) ||
     /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/i.test(name) ||

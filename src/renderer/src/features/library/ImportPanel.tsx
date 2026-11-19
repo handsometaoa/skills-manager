@@ -2,8 +2,14 @@ import { CompatibilitySelect } from './CompatibilitySelect'
 import { cleanError } from '../../lib/errors'
 import { useState } from 'react'
 import type { Candidate, Compatibility, Skill, Tool } from '../../../../shared/types'
-import { Drawer } from '../../components/ui/Drawer'
-import { Icon, ToolIcon } from '../../components/ui/Icons'
+import { SheetPanel } from '../../components/ui/SheetPanel'
+import { ArrowRight, FolderOpen, GitBranch, TriangleAlert } from 'lucide-react'
+import { Button } from '../../components/ui/button'
+import { Checkbox } from '../../components/ui/checkbox'
+import { Input } from '../../components/ui/input'
+import { Label } from '../../components/ui/label'
+import { ToolIcon } from '../../components/ui/Icons'
+import { cn } from '@/lib/utils'
 
 export function ImportPanel({
   tools,
@@ -63,7 +69,7 @@ export function ImportPanel({
     }
   }
   return (
-    <Drawer
+    <SheetPanel
       title={collect ? '收入中央仓库' : '添加到中央仓库'}
       subtitle={
         collect
@@ -74,156 +80,174 @@ export function ImportPanel({
       onClose={onClose}
       footer={
         <>
-          <span>{collect ? '复制收录，保留原文件' : `已选择 ${chosen.length} 个 Skill`}</span>
-          <button
-            className="primary"
-            disabled={busy || (!collect && !chosen.length)}
-            onClick={() => void submit()}
-          >
+          <span className="text-muted-foreground text-sm">
+            {collect ? '复制收录，保留原文件' : `已选择 ${chosen.length} 个 Skill`}
+          </span>
+          <Button disabled={busy || (!collect && !chosen.length)} onClick={() => void submit()}>
             {busy ? '正在收录…' : '收入仓库'}
-            <Icon name="arrow" />
-          </button>
+            <ArrowRight />
+          </Button>
         </>
       }
     >
       {collect ? (
-        <div className="collect-preview">
+        <div className="collect-preview flex items-start gap-3 rounded-xl border bg-card p-3">
           <ToolIcon id={collect.toolId} />
-          <div>
-            <strong>{collect.name}</strong>
-            <p>{collect.description}</p>
-            <code>{collect.path}</code>
+          <div className="min-w-0">
+            <strong className="text-sm">{collect.name}</strong>
+            <p className="text-muted-foreground truncate-2 text-xs">{collect.description}</p>
+            <code className="text-muted-foreground mt-1 block truncate text-xs">
+              {collect.path}
+            </code>
           </div>
         </div>
       ) : (
         <>
-          <div className="form-section">
-            <span className="step-label">01 / 来源</span>
-            <div className="segmented" aria-label="导入方式">
-              <button
-                disabled={busy}
-                className={method === 'local' ? 'selected' : ''}
-                onClick={() => setMethod('local')}
-              >
-                <Icon name="folder" />
-                本地目录
-              </button>
-              <button
-                disabled={busy}
-                className={method === 'git' ? 'selected' : ''}
-                onClick={() => setMethod('git')}
-              >
-                <Icon name="git" />
-                Git 仓库
-              </button>
+          <section className="space-y-3">
+            <span className="text-muted-foreground text-xs font-medium tracking-wide">
+              01 / 来源
+            </span>
+            <div className="grid grid-cols-2 gap-2" aria-label="导入方式">
+              {(
+                [
+                  ['local', FolderOpen, '本地目录'],
+                  ['git', GitBranch, 'Git 仓库'],
+                ] as const
+              ).map(([value, Icon, text]) => (
+                <Button
+                  key={value}
+                  variant="outline"
+                  disabled={busy}
+                  className={cn(method === value && 'border-primary/60 bg-primary/5')}
+                  onClick={() => setMethod(value)}
+                >
+                  <Icon />
+                  {text}
+                </Button>
+              ))}
             </div>
             {method === 'local' ? (
-              <button className="drop-zone" disabled={busy} onClick={() => void load()}>
-                <span className="import-symbol">
-                  <Icon name="folder" />
+              <button
+                className="drop-zone hover:bg-accent/60 flex w-full flex-col items-center gap-1.5 rounded-xl border border-dashed px-4 py-8 transition-colors disabled:opacity-50"
+                disabled={busy}
+                onClick={() => void load()}
+              >
+                <span className="bg-muted text-muted-foreground flex size-10 items-center justify-center rounded-lg">
+                  <FolderOpen className="size-5" />
                 </span>
-                <strong>{busy ? '正在读取…' : '选择 Skill 文件夹'}</strong>
-                <span>支持单个 Skill，或包含多个 Skill 的目录</span>
-                <span className="text-link">
-                  浏览本地文件 <Icon name="arrow" />
+                <strong className="text-sm">{busy ? '正在读取…' : '选择 Skill 文件夹'}</strong>
+                <span className="text-muted-foreground text-xs">
+                  支持单个 Skill，或包含多个 Skill 的目录
+                </span>
+                <span className="text-primary inline-flex items-center gap-1 text-xs">
+                  浏览本地文件 <ArrowRight className="size-3" />
                 </span>
               </button>
             ) : (
-              <div className="git-form">
-                <label htmlFor="git-url">仓库地址</label>
-                <input
+              <div className="space-y-2">
+                <Label htmlFor="git-url">仓库地址</Label>
+                <Input
                   id="git-url"
                   placeholder="https://github.com/owner/repository"
                   value={url}
                   disabled={busy}
                   onChange={(e) => setUrl(e.target.value)}
                 />
-                <p className="hint">公开 HTTPS 仓库，需要系统已安装 Git。</p>
-                <button disabled={busy || !url.trim()} onClick={() => void load()}>
-                  <Icon name="git" />
+                <p className="text-muted-foreground text-xs">
+                  公开 HTTPS 仓库，需要系统已安装 Git。
+                </p>
+                <Button
+                  variant="outline"
+                  disabled={busy || !url.trim()}
+                  onClick={() => void load()}
+                >
+                  <GitBranch />
                   {busy ? '正在克隆并扫描…' : '读取仓库'}
-                </button>
+                </Button>
               </div>
             )}
-          </div>
+          </section>
           {loaded && (
-            <div className="form-section">
-              <div className="section-row">
-                <span className="step-label">02 / 选择 Skill</span>
+            <section className="space-y-3">
+              <div className="flex items-center justify-between">
+                <span className="text-muted-foreground text-xs font-medium tracking-wide">
+                  02 / 选择 Skill
+                </span>
                 {items.length > 0 && (
-                  <button
-                    className="text-button"
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-7 text-xs"
                     disabled={busy}
                     onClick={() =>
                       setChosen(chosen.length === items.length ? [] : items.map((c) => c.path))
                     }
                   >
                     {chosen.length === items.length ? '取消全选' : '全选'}
-                  </button>
+                  </Button>
                 )}
               </div>
               {!items.length ? (
-                <div className="inline-empty">未找到有效的 SKILL.md。请检查目录及必填字段。</div>
+                <div className="bg-muted text-muted-foreground rounded-lg p-3 text-sm">
+                  未找到有效的 SKILL.md。请检查目录及必填字段。
+                </div>
               ) : (
-                <div className="candidate-list">
+                <div className="max-h-56 space-y-2 overflow-y-auto pr-1">
                   {items.map((c) => (
-                    <label className="candidate-option" key={c.path}>
-                      <input
-                        type="checkbox"
+                    <Label
+                      className="candidate-option hover:bg-accent/60 flex cursor-pointer items-start gap-2.5 rounded-lg border px-3 py-2.5 text-sm font-normal"
+                      key={c.path}
+                    >
+                      <Checkbox
+                        className="mt-0.5"
                         checked={chosen.includes(c.path)}
                         disabled={busy}
-                        onChange={(e) =>
+                        onCheckedChange={(checked) =>
                           setChosen(
-                            e.target.checked
-                              ? [...chosen, c.path]
-                              : chosen.filter((p) => p !== c.path),
+                            checked ? [...chosen, c.path] : chosen.filter((p) => p !== c.path),
                           )
                         }
                       />
-                      <span>
-                        <strong>{c.name}</strong>
-                        <small>{c.description}</small>
+                      <span className="min-w-0">
+                        <strong className="block text-sm">{c.name}</strong>
+                        <small className="text-muted-foreground truncate-2 block text-xs">
+                          {c.description}
+                        </small>
                         {c.warnings.map((w) => (
-                          <small className="warning" key={w}>
+                          <small className="text-amber-500 block text-xs" key={w}>
                             {w}
                           </small>
                         ))}
                       </span>
-                    </label>
+                    </Label>
                   ))}
                 </div>
               )}
-            </div>
+            </section>
           )}
         </>
       )}
-      <div className="form-section">
-        <span className="step-label">
+      <section className="space-y-3">
+        <span className="text-muted-foreground text-xs font-medium tracking-wide">
           {collect ? '适用范围' : loaded ? '03 / 适用范围' : '02 / 适用范围'}
         </span>
-        <h3>通用，或选择多个适用工具</h3>
-        <p className="form-description">
-          可以同时选择多个工具。Skill 只会出现在所选工具的仓库安装列表里，适用范围可随时修改。
-        </p>
+        <h3 className="text-sm font-medium">通用，或选择多个适用工具</h3>
         <CompatibilitySelect
           value={compatibility}
           onChange={setCompatibility}
           tools={tools}
           disabled={busy}
         />
-        <div className="subtle-note">
-          <Icon name="file" />
-          <span>
-            适用范围用于筛选安装列表，无法限制工具读取共享目录。应用保留原始内容，不会自动转换工具专用指令。
-          </span>
-        </div>
-      </div>
+      </section>
       {error && (
-        <div className="notice error" role="alert">
-          <Icon name="warning" />
+        <div
+          role="alert"
+          className="text-destructive flex items-start gap-2 rounded-lg border border-destructive/40 bg-destructive/10 p-3 text-sm"
+        >
+          <TriangleAlert className="mt-0.5 size-4 shrink-0" />
           {error}
         </div>
       )}
-    </Drawer>
+    </SheetPanel>
   )
 }

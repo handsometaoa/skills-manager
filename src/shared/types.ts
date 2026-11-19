@@ -48,6 +48,13 @@ export interface Snapshot {
   diagnostics: string[]
   library: Skill[]
   libraryRoot: string
+  trash: TrashEntry[]
+}
+export interface TrashEntry {
+  id: string
+  skill: Skill
+  deletedAt: string
+  originalPath: string
 }
 export interface SkillFile {
   path: string
@@ -57,4 +64,38 @@ export interface SkillDetail {
   skill: Skill
   files: SkillFile[]
   truncated: boolean
+}
+export type ThemeMode = 'system' | 'light' | 'dark'
+/** Auto-update state surfaced to the renderer. */
+export interface UpdateStatus {
+  currentVersion: string
+  /** False in development builds, where the updater cannot run. */
+  updateSupported: boolean
+  state:
+    'idle' | 'checking' | 'available' | 'not-available' | 'downloading' | 'downloaded' | 'error'
+  availableVersion?: string
+  /** Download progress in percent (0–100) while state is 'downloading'. */
+  progress?: number
+  error?: string
+}
+/** Input for creating a Skill from the built-in template. */
+export interface CreateSkillInput {
+  name: string
+  description: string
+  /** Where the template directory is created: the central library or directly in a tool's root. */
+  target: 'library' | ToolId
+  /** Applies only when target is 'library'. */
+  compatibility?: Compatibility
+}
+/** Per-tool scan configuration. `root` overrides the default scan/install directory; `extraRoots` are read-only discovery additions; `enabled: false` hides the agent entirely. */
+export interface ToolScanSettings {
+  root?: string
+  extraRoots?: string[]
+  enabled?: boolean
+}
+export interface Settings {
+  theme: ThemeMode
+  /** Custom central library location. Undefined means the default `<userData>/library`. */
+  libraryRoot?: string
+  tools: Partial<Record<ToolId, ToolScanSettings>>
 }

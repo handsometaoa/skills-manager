@@ -1,5 +1,9 @@
-import { BrowserWindow } from 'electron'
+import { BrowserWindow, nativeTheme } from 'electron'
 import path from 'node:path'
+import { IPC_CHANNELS } from '../shared/ipc'
+
+// Matches the zinc `--background` token in globals.css for both schemes.
+export const backgroundColor = () => (nativeTheme.shouldUseDarkColors ? '#09090b' : '#ffffff')
 
 export function createMainWindow() {
   const window = new BrowserWindow({
@@ -7,7 +11,11 @@ export function createMainWindow() {
     height: 850,
     minWidth: 1000,
     minHeight: 680,
-    backgroundColor: '#f7f8fa',
+    // The frame stays for native edge resizing and window snapping; only the
+    // title bar is hidden so the renderer can draw ZCode-style controls.
+    // macOS keeps the native traffic lights and just insets them instead.
+    titleBarStyle: process.platform === 'darwin' ? 'hiddenInset' : 'hidden',
+    backgroundColor: backgroundColor(),
     autoHideMenuBar: true,
     webPreferences: {
       preload: path.join(__dirname, '../preload/index.js'),
@@ -15,6 +23,15 @@ export function createMainWindow() {
       nodeIntegration: false,
       sandbox: true,
     },
+  })
+  const notifyMaximized = () => {
+    if (!window.isDestroyed())
+      window.webContents.send(IPC_CHANNELS.onWindowMaximizeChange, window.isMaximized())
+  }
+  window.on('maximize', notifyMaximized)
+  window.on('unmaximize', notifyMaximized)
+  nativeTheme.on('updated', () => {
+    if (!window.isDestroyed()) window.setBackgroundColor(backgroundColor())
   })
   window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
   window.webContents.on('will-navigate', (event) => event.preventDefault())

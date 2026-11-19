@@ -1,8 +1,10 @@
-import { app, BrowserWindow, dialog } from 'electron'
+import { app, BrowserWindow, dialog, nativeTheme } from 'electron'
 import os from 'node:os'
 import path from 'node:path'
 import { SkillStore } from './services/skill-service'
 import { SourceService } from './services/source-service'
+import { SettingsService } from './services/settings-service'
+import { UpdaterService } from './services/updater-service'
 import { registerHandlers } from './ipc/register-handlers'
 import { createMainWindow } from './window'
 
@@ -15,14 +17,24 @@ export function bootstrap(): void {
   app.setName('Skills Manager')
   let mainWindow: BrowserWindow | null = null
   let sources: SourceService | undefined
+  let updater: UpdaterService | undefined
   let cleanupComplete = false
   app
     .whenReady()
     .then(async () => {
-      const store = new SkillStore(app.getPath('userData'), os.homedir())
+      const settings = new SettingsService(path.join(app.getPath('userData'), 'settings.json'))
+      const saved = await settings.load()
+      // `themeSource` drives the renderer's `prefers-color-scheme`, so the UI
+      // and the window background follow the same source of truth.
+      nativeTheme.themeSource = saved.theme
+      const store = new SkillStore(app.getPath('userData'), os.homedir(), saved)
       await store.init()
       sources = new SourceService((root) => store.discover(root))
-      registerHandlers(store, sources, () => {
+      updater = new UpdaterService(() => {
+        if (!mainWindow || mainWindow.isDestroyed()) throw new Error('应用窗口已关闭')
+        return mainWindow
+      })
+      registerHandlers(store, sources, settings, updater, () => {
         if (!mainWindow || mainWindow.isDestroyed()) throw new Error('应用窗口已关闭')
         return mainWindow
       })

@@ -17,7 +17,7 @@ async function fixture() {
   await store.init()
   return { root, source, store, cleanup: () => fs.rm(root, { recursive: true, force: true }) }
 }
-test('multi-tool install persists, protects conflicts and keeps uninstall backup', async () => {
+test('multi-tool install persists, protects conflicts and recycles managed skills', async () => {
   const f = await fixture()
   try {
     await f.store.install(f.source, ['claude', 'codex', 'zcode'])
@@ -29,32 +29,34 @@ test('multi-tool install persists, protects conflicts and keeps uninstall backup
     const skill = (await reopened.scan()).skills[0]
     await reopened.uninstall(skill.id)
     assert.equal((await reopened.scan()).skills.length, 2)
-    const backups = (await fs.readdir(path.dirname(skill.path))).filter((p) =>
-      p.startsWith('.removed-'),
-    )
-    assert.equal(backups.length, 1)
-    assert.ok(
-      await fs.readFile(path.join(path.dirname(skill.path), backups[0], 'SKILL.md'), 'utf8'),
-    )
+    const trash = (await reopened.scan()).trash
+    assert.equal(trash.length, 1)
+    assert.equal(trash[0].originalPath, skill.path)
+    await reopened.restoreTrash(trash[0].id)
+    const restored = (await reopened.scan()).skills.find((s) => s.id === skill.id)
+    assert.equal(restored?.managed, true)
+    assert.ok(await fs.readFile(path.join(skill.path, 'SKILL.md'), 'utf8'))
   } finally {
     await f.cleanup()
   }
 })
-test('modified and newly added files prevent uninstall', async () => {
+test('recycling and restoring a modified managed Skill preserves all user changes', async () => {
   const f = await fixture()
   try {
     await f.store.install(f.source, ['zcode'])
     const skill = (await f.store.scan()).skills[0]
     await fs.writeFile(path.join(skill.path, 'notes.txt'), 'user content')
-    await assert.rejects(() => f.store.uninstall(skill.id), /修改或新增/)
-    assert.equal((await f.store.scan()).skills.length, 1)
-    await fs.unlink(path.join(skill.path, 'notes.txt'))
     await fs.appendFile(path.join(skill.path, 'SKILL.md'), 'user changes')
-    await assert.rejects(() => f.store.uninstall(skill.id), /修改或新增/)
+    await f.store.uninstall(skill.id)
+    assert.equal((await f.store.scan()).skills.length, 0)
+    await f.store.restoreTrash((await f.store.scan()).trash[0].id)
+    assert.equal(await fs.readFile(path.join(skill.path, 'notes.txt'), 'utf8'), 'user content')
+    assert.match(await f.store.readFile(skill.id, 'SKILL.md'), /user changes/)
   } finally {
     await f.cleanup()
   }
 })
+
 test('external skills cannot be uninstalled and malformed metadata is diagnosed', async () => {
   const f = await fixture()
   try {
@@ -98,44 +100,33 @@ test('copy external ZCode skill into Codex preserves source and auxiliary files'
     await f.cleanup()
   }
 })
-test('external deletion uses recovery provider only for external scanned directories', async () => {
+test('external deletion persists in app trash, restores supporting files and rejects invalid ids', async () => {
   const f = await fixture()
   try {
     const external = path.join(f.store.tools[2].root, 'review')
     await fs.mkdir(path.dirname(external), { recursive: true })
     await fs.cp(f.source, external, { recursive: true })
+    await fs.writeFile(path.join(external, 'notes.txt'), 'user content')
     const id = (await f.store.scan()).skills[0].id
-    let calls = 0
-    const recovery = path.join(f.root, 'test-recycle-bin')
-    await f.store.deleteExternal(id, async (directory) => {
-      calls++
-      assert.equal(directory, external)
-      await fs.rename(directory, recovery)
-    })
-    assert.equal(calls, 1)
+    await f.store.deleteExternal(id)
     assert.equal((await f.store.scan()).skills.length, 0)
-    assert.ok(await fs.readFile(path.join(recovery, 'SKILL.md')))
-    await f.store.install(f.source, ['codex'])
-    const managed = (await f.store.scan()).skills[0]
-    await assert.rejects(
-      () =>
-        f.store.deleteExternal('../../elsewhere', async () => {
-          calls++
-        }),
-      /仅支持/,
-    )
-    await assert.rejects(
-      () =>
-        f.store.deleteExternal(managed.id, async () => {
-          calls++
-        }),
-      /仅支持/,
-    )
-    assert.equal(calls, 1)
+    const reopened = new SkillStore(path.join(f.root, 'data'), path.join(f.root, 'home'))
+    await reopened.init()
+    const entry = (await reopened.scan()).trash[0]
+    assert.equal(entry.originalPath, external)
+    await reopened.restoreTrash(entry.id)
+    assert.equal(await fs.readFile(path.join(external, 'notes.txt'), 'utf8'), 'user content')
+    assert.equal((await reopened.scan()).skills[0].managed, false)
+    assert.equal((await reopened.scan()).trash.length, 0)
+    await assert.rejects(() => reopened.deleteExternal('../../elsewhere'), /仅支持/)
+    await reopened.install(f.source, ['codex'])
+    const managed = (await reopened.scan()).skills.find((s) => s.managed)!
+    await assert.rejects(() => reopened.deleteExternal(managed.id), /仅支持/)
   } finally {
     await f.cleanup()
   }
 })
+
 test('browse lists supporting files and reads UTF-8 content within the Skill directory', async () => {
   const f = await fixture()
   try {
@@ -227,10 +218,11 @@ test('central library persists independent copies, browses and installs with a s
     assert.equal(installed.length, 2)
     assert.ok(installed.every((s) => s.libraryId === entry.id))
     assert.ok(installed.every((s) => s.source === 'https://example.org/team/skills#review'))
-    await reopened.deleteLibrary(entry.id, (directory) =>
-      fs.rename(directory, path.join(f.root, 'recycled')),
-    )
-    assert.equal((await reopened.scan()).library.length, 0)
+    await reopened.deleteLibrary(entry.id)
+    assert.equal((await reopened.scan()).trash.length, 1)
+    await reopened.restoreTrash((await reopened.scan()).trash[0].id)
+    assert.equal((await reopened.scan()).library[0].id, entry.id)
+    assert.equal((await reopened.scan()).library.length, 1)
     assert.equal((await reopened.scan()).skills.length, 2)
     assert.ok(await fs.readFile(path.join(installed[0].path, 'SKILL.md')))
   } finally {
@@ -285,14 +277,9 @@ test('batch library import and installation roll back on conflicts', async () =>
     const snapshot = await f.store.scan()
     assert.equal(snapshot.skills.length, 1)
     assert.equal(snapshot.skills[0].name, 'release')
-    await assert.rejects(
-      () =>
-        f.store.deleteLibrary(snapshot.library[0].id, async () => {
-          throw new Error('trash unavailable')
-        }),
-      /trash unavailable/,
-    )
-    assert.equal((await f.store.scan()).library.length, 2)
+    await f.store.deleteLibrary(snapshot.library[0].id)
+    assert.equal((await f.store.scan()).library.length, 1)
+    assert.equal((await f.store.scan()).trash.length, 1)
   } finally {
     await f.cleanup()
   }
@@ -353,6 +340,123 @@ test('shared discovery prevents duplicate installs and preserves unrelated targe
     assert.equal((await f.store.scan()).skills.length, 0)
     await f.store.install(f.source, ['cursor', 'qoder'])
     assert.equal((await f.store.scan()).skills.length, 2)
+  } finally {
+    await f.cleanup()
+  }
+})
+
+test('shared Skills restore discovery and installation identity for all readers', async () => {
+  const f = await fixture()
+  try {
+    await f.store.install(f.source, ['codex'])
+    const skill = (await f.store.scan()).skills[0]
+    await f.store.uninstall(skill.id)
+    assert.equal((await f.store.scan()).skills.length, 0)
+    const reopened = new SkillStore(path.join(f.root, 'data'), path.join(f.root, 'home'))
+    await reopened.init()
+    await reopened.restoreTrash((await reopened.scan()).trash[0].id)
+    const restored = (await reopened.scan()).skills[0]
+    assert.equal(restored.id, skill.id)
+    assert.equal(restored.installedBy, 'codex')
+    assert.deepEqual(restored.discoveredBy, skill.discoveredBy)
+  } finally {
+    await f.cleanup()
+  }
+})
+
+test('recycle and restore roll back content when installation records cannot be saved', async (t) => {
+  const f = await fixture()
+  const rename = fs.rename.bind(fs)
+  let failSave = false
+  const mocked = t.mock.method(
+    fs,
+    'rename',
+    async (
+      source: Parameters<typeof fs.rename>[0],
+      destination: Parameters<typeof fs.rename>[1],
+    ) => {
+      if (failSave && destination === path.join(f.root, 'data', 'installations.json'))
+        throw new Error('simulated record write failure')
+      return rename(source, destination)
+    },
+  )
+  try {
+    await f.store.install(f.source, ['zcode'])
+    const skill = (await f.store.scan()).skills[0]
+    failSave = true
+    await assert.rejects(() => f.store.uninstall(skill.id), /record write failure/)
+    assert.equal((await f.store.scan()).skills[0].id, skill.id)
+    assert.equal((await f.store.scan()).trash.length, 0)
+    assert.ok(await fs.readFile(path.join(skill.path, 'SKILL.md')))
+    failSave = false
+    await f.store.uninstall(skill.id)
+    const entry = (await f.store.scan()).trash[0]
+    failSave = true
+    await assert.rejects(() => f.store.restoreTrash(entry.id), /record write failure/)
+    assert.equal((await f.store.scan()).skills.length, 0)
+    assert.equal((await f.store.scan()).trash[0].id, entry.id)
+    failSave = false
+    await f.store.restoreTrash(entry.id)
+    assert.equal((await f.store.scan()).skills[0].id, skill.id)
+  } finally {
+    mocked.mock.restore()
+    await f.cleanup()
+  }
+})
+
+test('cross-device recycle verifies a complete copy and supports restoration', async (t) => {
+  const f = await fixture()
+  const rename = fs.rename.bind(fs)
+  try {
+    await f.store.install(f.source, ['codex'])
+    const skill = (await f.store.scan()).skills[0]
+    await fs.writeFile(path.join(skill.path, 'notes.txt'), 'keep this change')
+    const mocked = t.mock.method(
+      fs,
+      'rename',
+      async (
+        source: Parameters<typeof fs.rename>[0],
+        destination: Parameters<typeof fs.rename>[1],
+      ) => {
+        if (source === skill.path && String(destination).includes(`${path.sep}trash${path.sep}`))
+          throw Object.assign(new Error('cross-device move'), { code: 'EXDEV' })
+        return rename(source, destination)
+      },
+    )
+    await f.store.uninstall(skill.id)
+    mocked.mock.restore()
+    assert.equal((await f.store.scan()).skills.length, 0)
+    await f.store.restoreTrash((await f.store.scan()).trash[0].id)
+    assert.equal(await fs.readFile(path.join(skill.path, 'notes.txt'), 'utf8'), 'keep this change')
+  } finally {
+    t.mock.restoreAll()
+    await f.cleanup()
+  }
+})
+
+test('trash restore refuses occupied paths and duplicate library scopes; permanent deletion removes only its entry', async () => {
+  const f = await fixture()
+  try {
+    await f.store.install(f.source, ['zcode'])
+    const skill = (await f.store.scan()).skills[0]
+    await f.store.uninstall(skill.id)
+    const first = (await f.store.scan()).trash[0]
+    await fs.mkdir(skill.path)
+    await fs.writeFile(path.join(skill.path, 'precious.txt'), 'keep me')
+    await assert.rejects(() => f.store.restoreTrash(first.id), /同名目录/)
+    assert.equal(await fs.readFile(path.join(skill.path, 'precious.txt'), 'utf8'), 'keep me')
+    await f.store.addToLibrary([{ path: f.source, source: f.source }], 'all')
+    await f.store.deleteLibrary((await f.store.scan()).library[0].id)
+    const second = (await f.store.scan()).trash.find((entry) => entry.id !== first.id)!
+    await f.store.addToLibrary([{ path: f.source, source: f.source }], 'all')
+    await assert.rejects(() => f.store.restoreTrash(second.id), /同名/)
+    await f.store.deleteTrash(first.id)
+    assert.equal((await f.store.scan()).trash.length, 1)
+    await assert.rejects(() => f.store.restoreTrash(first.id), /不存在/)
+    await assert.rejects(() => f.store.deleteTrash('../outside'), /不存在/)
+    const reopened = new SkillStore(path.join(f.root, 'data'), path.join(f.root, 'home'))
+    await reopened.init()
+    assert.equal((await reopened.scan()).trash[0].id, second.id)
   } finally {
     await f.cleanup()
   }

@@ -1,12 +1,30 @@
+import { useEffect, useState } from 'react'
+import { toast, Toaster } from 'sonner'
+import {
+  Copy,
+  FolderOpen,
+  Minus,
+  Plus,
+  RefreshCw,
+  Sparkles,
+  Square,
+  TriangleAlert,
+  X,
+} from 'lucide-react'
 import { SkillTable } from './features/workspace/SkillTable'
 import { WorkspaceToolbar } from './features/workspace/WorkspaceToolbar'
 import { SkillViewer } from './features/skills/SkillViewer'
-import { Icon, ToolIcon } from './components/ui/Icons'
+import { ToolIcon } from './components/ui/Icons'
 import { ImportPanel } from './features/library/ImportPanel'
 import { InstallPanel } from './features/library/InstallPanel'
+import { CreateSkillDialog } from './features/library/CreateSkillDialog'
+import { SettingsView } from './features/settings/SettingsView'
 import { Sidebar } from './components/layout/Sidebar'
 import { useWorkspace } from './features/workspace/useWorkspace'
 import { discoveredBy } from '../../shared/compatibility'
+import { TrashPanel } from './features/workspace/TrashPanel'
+import { Button } from '@/components/ui/button'
+import { isMac } from './lib/platform'
 
 export function App() {
   const workspace = useWorkspace()
@@ -21,6 +39,8 @@ export function App() {
     setViewing,
     importing,
     setImporting,
+    creating,
+    setCreating,
     collect,
     setCollect,
     installing,
@@ -37,6 +57,8 @@ export function App() {
     changeTab,
     tool,
     isLibrary,
+    isTrash,
+    isSettings,
     installed,
     items,
     chosen,
@@ -44,142 +66,211 @@ export function App() {
     installCurrent,
     completeImport,
     completeInstall,
+    completeCreate,
   } = workspace
+
+  // The workspace hook reports results through `message`; surface them as toasts.
+  useEffect(() => {
+    if (!message) return
+    if (message.error) toast.error(message.text)
+    else toast.success(message.text)
+    setMessage(null)
+  }, [message, setMessage])
+
+  // Frameless-window state for the ZCode-style controls in the title bar.
+  const [maximized, setMaximized] = useState(false)
+  useEffect(() => {
+    let active = true
+    window.skills
+      .windowIsMaximized()
+      .then((value) => {
+        if (active) setMaximized(value)
+      })
+      .catch(() => {})
+    const unsubscribe = window.skills.onWindowMaximizeChange(setMaximized)
+    return () => {
+      active = false
+      unsubscribe()
+    }
+  }, [])
+
+  const pageName = isTrash ? '回收站' : isSettings ? '设置' : isLibrary ? '中央仓库' : tool?.name
+
   return (
-    <div className="app-shell">
-      <a className="skip-link" href="#workspace">
+    <div className="flex h-screen overflow-hidden">
+      <a href="#workspace" className="sr-only focus:not-sr-only">
         跳至内容
       </a>
       <Sidebar data={data} page={page} isLibrary={isLibrary} navigate={navigate} />
-      <div className="app-main">
-        <header className="topbar">
-          <div>
+      <div className="flex min-w-0 flex-1 flex-col">
+        <header className="app-region-drag flex h-12 shrink-0 items-center justify-between gap-3 border-b pl-4">
+          <div className="text-muted-foreground flex min-w-0 items-center gap-1.5 text-sm">
             我的工作空间<span>/</span>
-            <strong>{isLibrary ? '中央仓库' : tool?.name}</strong>
+            <strong className="truncate font-semibold text-foreground">{pageName}</strong>
           </div>
-          <div className="topbar-actions">
-            <span className="local-indicator">
-              <span className="connection-dot" />
-              仅存储于本机
-            </span>
-            <button
-              className={`icon-button ${busy ? 'is-loading' : ''}`}
+          <div className="flex h-full items-center">
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              className="app-region-no-drag mr-1"
               aria-label="刷新列表"
               title="重新扫描文件"
               disabled={busy}
               onClick={() => void run(refresh)}
             >
-              <Icon name="refresh" />
-            </button>
-          </div>
-        </header>
-        <main id="workspace" className="workspace" tabIndex={-1} aria-busy={busy}>
-          <section className="workspace-heading">
-            <div className="heading-copy">
-              <div className="section-label">
-                {isLibrary ? '你的能力，集中收藏' : '独立安装，随时取用'}
-              </div>
-              <h1>
-                {!isLibrary && <ToolIcon id={page} />} {isLibrary ? '中央仓库' : tool?.name}
-                <span className="heading-count">
-                  {isLibrary ? data.library.length : installed.length}
-                </span>
-              </h1>
-              <p>
-                {isLibrary
-                  ? '收好每一份工作方法，再交给合适的工具。'
-                  : '从中央仓库挑选技能，复制到这个工具的用户目录。'}
-              </p>
-            </div>
-            <div className="heading-actions">
-              {isLibrary ? (
+              <RefreshCw className={busy ? 'animate-spin' : ''} />
+            </Button>
+            {/* macOS renders native traffic lights (hiddenInset) instead. */}
+            <div className="app-region-no-drag ml-1 flex items-center self-stretch">
+              {isMac ? null : (
                 <>
                   <button
-                    className="quiet-button"
-                    disabled={busy}
-                    title={data.libraryRoot}
-                    onClick={() =>
-                      void run(async () => {
-                        await window.skills.openPath(data.libraryRoot)
-                      })
-                    }
+                    className="text-muted-foreground hover:bg-foreground/10 hover:text-foreground active:bg-foreground/20 flex h-full w-11 items-center justify-center"
+                    aria-label="最小化"
+                    onClick={() => void window.skills.windowMinimize()}
                   >
-                    <Icon name="folder" />
-                    打开仓库
-                  </button>
-                  <button className="primary" disabled={busy} onClick={() => openImport()}>
-                    <Icon name="plus" />
-                    添加 Skill
-                  </button>
-                </>
-              ) : (
-                <>
-                  <button
-                    className="quiet-button"
-                    disabled={busy}
-                    onClick={() =>
-                      void run(async () => {
-                        await window.skills.openPath(tool!.root)
-                      })
-                    }
-                  >
-                    <Icon name="folder" />
-                    打开目录
+                    <Minus className="size-4" strokeWidth={1.75} />
                   </button>
                   <button
-                    className="primary"
-                    disabled={busy}
-                    onClick={() => changeTab('available')}
+                    className="text-muted-foreground hover:bg-foreground/10 hover:text-foreground active:bg-foreground/20 flex h-full w-11 items-center justify-center"
+                    aria-label={maximized ? '还原' : '最大化'}
+                    onClick={() => void window.skills.windowMaximizeToggle()}
                   >
-                    <Icon name="plus" />
-                    从仓库安装
+                    {maximized ? (
+                      <Copy className="size-3.5" strokeWidth={1.75} />
+                    ) : (
+                      <Square className="size-3.5" strokeWidth={1.75} />
+                    )}
+                  </button>
+                  <button
+                    className="text-muted-foreground hover:bg-[#c42b1c] hover:text-white active:bg-[#a82718] flex h-full w-11 items-center justify-center"
+                    aria-label="关闭"
+                    onClick={() => void window.skills.windowClose()}
+                  >
+                    <X className="size-4" strokeWidth={1.75} />
                   </button>
                 </>
               )}
             </div>
-          </section>
-          {isLibrary && (
-            <section className="distribution-strip" aria-label="安装概览">
-              <div className="distribution-intro">
-                <span className="flow-mark">
-                  <Icon name="library" />
-                </span>
-                <div>
-                  <strong>一个仓库，多个工作伙伴</strong>
-                  <span>通用能力与工具专用 Skill 都能收录</span>
-                </div>
+          </div>
+        </header>
+        <main
+          id="workspace"
+          className="flex-1 overflow-y-auto px-6 py-5"
+          tabIndex={-1}
+          aria-busy={busy}
+        >
+          {!isTrash && !isSettings && (
+            <section className="mb-4 flex flex-wrap items-end justify-between gap-3">
+              <div className="min-w-0">
+                <h1 className="flex items-center gap-2 text-xl font-semibold tracking-tight">
+                  {isLibrary ? <ToolIcon id="library" /> : tool && <ToolIcon id={tool.id} />}
+                  {isLibrary ? '中央仓库' : tool?.name}
+                  <span className="text-muted-foreground rounded-full bg-muted px-2 py-0.5 text-xs font-normal tabular-nums">
+                    {isLibrary ? data.library.length : installed.length}
+                  </span>
+                </h1>
               </div>
-              <div className="distribution-tools">
-                {data.tools.map((t) => (
-                  <button key={t.id} onClick={() => navigate(t.id)}>
-                    <ToolIcon id={t.id} small />
-                    <span>
-                      {t.name}
-                      <small>
-                        {data.skills.filter((s) => discoveredBy(s, t.id)).length} 个可发现
-                      </small>
-                    </span>
-                    <Icon name="arrow" />
-                  </button>
-                ))}
+              <div className="flex items-center gap-2">
+                {isLibrary ? (
+                  <>
+                    <Button
+                      variant="outline"
+                      disabled={busy}
+                      title={data.libraryRoot}
+                      onClick={() =>
+                        void run(async () => {
+                          await window.skills.openPath(data.libraryRoot)
+                        })
+                      }
+                    >
+                      <FolderOpen />
+                      打开仓库
+                    </Button>
+                    <Button
+                      variant="outline"
+                      disabled={busy}
+                      onClick={() => setCreating('library')}
+                    >
+                      <Sparkles />
+                      新建 Skill
+                    </Button>
+                    <Button disabled={busy} onClick={() => openImport()}>
+                      <Plus />
+                      添加 Skill
+                    </Button>
+                  </>
+                ) : (
+                  <>
+                    <Button
+                      variant="outline"
+                      disabled={busy}
+                      onClick={() =>
+                        void run(async () => {
+                          await window.skills.openPath(tool!.root)
+                        })
+                      }
+                    >
+                      <FolderOpen />
+                      打开目录
+                    </Button>
+                    <Button
+                      variant="outline"
+                      disabled={busy}
+                      onClick={() => tool && setCreating(tool.id)}
+                    >
+                      <Sparkles />
+                      新建 Skill
+                    </Button>
+                    <Button disabled={busy} onClick={() => changeTab('available')}>
+                      <Plus />
+                      从仓库安装
+                    </Button>
+                  </>
+                )}
               </div>
             </section>
           )}
-          {!isLibrary && (
-            <>
-              <div className="tool-path">
-                <span className="path-label">用户目录</span>
-                <code>{tool?.root}</code>
-                <span>复制安装</span>
+          {isLibrary && !isTrash && !isSettings && (
+            <section
+              className="mb-4 flex flex-wrap items-center gap-2 rounded-xl border bg-card p-4"
+              aria-label="安装概览"
+            >
+              {data.tools.map((t) => (
+                <button
+                  key={t.id}
+                  className="hover:bg-accent flex items-center gap-2 rounded-lg border px-3 py-2 text-left transition-colors"
+                  onClick={() => navigate(t.id)}
+                >
+                  <ToolIcon id={t.id} small />
+                  <span className="leading-tight">
+                    <span className="block text-sm font-medium">{t.name}</span>
+                    <small className="text-muted-foreground block text-xs">
+                      {data.skills.filter((s) => discoveredBy(s, t.id)).length} 个可发现
+                    </small>
+                  </span>
+                </button>
+              ))}
+            </section>
+          )}
+          {!isLibrary && !isTrash && !isSettings && (
+            <div className="mb-4 space-y-2 rounded-xl border bg-card p-4">
+              <div className="flex flex-wrap items-center gap-2 text-sm">
+                <span className="text-muted-foreground">用户目录</span>
+                <code className="bg-muted rounded px-1.5 py-0.5 text-xs break-all">
+                  {tool?.root}
+                </code>
               </div>
-              <div className="tool-discovery-note">
-                <span>{tool?.instructions}</span>
-                <details>
-                  <summary>查看扫描目录与共享关系</summary>
+              <div className="text-muted-foreground text-xs">{tool?.instructions}</div>
+              <details className="group text-sm">
+                <summary className="text-muted-foreground hover:text-foreground w-fit cursor-pointer text-xs">
+                  查看扫描目录与共享关系
+                </summary>
+                <div className="mt-2 space-y-1">
                   {tool?.discoveryRoots.map((root) => (
-                    <p key={root}>
-                      <code>{root}</code>
-                      <span>
+                    <p key={root} className="flex flex-wrap items-center gap-2 text-xs">
+                      <code className="bg-muted rounded px-1.5 py-0.5">{root}</code>
+                      <span className="text-muted-foreground">
                         {data.tools
                           .filter((t) => t.discoveryRoots.includes(root))
                           .map((t) => t.name)
@@ -187,67 +278,60 @@ export function App() {
                       </span>
                     </p>
                   ))}
-                  <small>
+                  <p className="text-muted-foreground text-xs">
                     可发现表示目录中存在文件，不代表已启用或实际加载。同名技能的优先级由目标工具决定。
-                  </small>
-                </details>
+                  </p>
+                </div>
+              </details>
+            </div>
+          )}
+          {isTrash ? (
+            <TrashPanel workspace={workspace} />
+          ) : isSettings ? (
+            <SettingsView workspace={workspace} />
+          ) : (
+            <>
+              <WorkspaceToolbar workspace={workspace} />
+              <SkillTable workspace={workspace} />
+              <div className="text-muted-foreground mt-4 text-xs">
+                {items.length} 个 Skill
+                {isLibrary
+                  ? ` · ${data.library.filter((s) => s.compatibility === 'all').length} 个通用`
+                  : ` · 自己的 ${workspace.own.length} · 共享 ${workspace.shared.length}`}
               </div>
             </>
           )}
-          {message && (
-            <div
-              role={message.error ? 'alert' : 'status'}
-              className={`notice ${message.error ? 'error' : 'success'}`}
-            >
-              <Icon name={message.error ? 'warning' : 'check'} />
-              <span>{message.text}</span>
-              <button
-                className="icon-button"
-                aria-label="关闭提示"
-                onClick={() => setMessage(null)}
-              >
-                <Icon name="close" />
-              </button>
-            </div>
-          )}
-          <WorkspaceToolbar workspace={workspace} />
-          <SkillTable workspace={workspace} />
-          <div className="list-footer">
-            <span>
-              {items.length} 个 Skill
-              {isLibrary
-                ? ` · ${data.library.filter((s) => s.compatibility === 'all').length} 个通用`
-                : ' · 用户级可发现'}
-            </span>
-            <span>
-              <span className="connection-dot" />
-              仓库与工具副本不自动同步
-            </span>
-          </div>
           {data.diagnostics.length > 0 && (
-            <section className="diagnostics">
-              <button className="text-button" onClick={() => setShowDiagnostics(!showDiagnostics)}>
-                <Icon name="warning" />
+            <section className="mt-4">
+              <button
+                className="text-muted-foreground hover:text-foreground flex items-center gap-1.5 text-xs"
+                onClick={() => setShowDiagnostics(!showDiagnostics)}
+              >
+                <TriangleAlert className="size-3.5" />
                 {data.diagnostics.length} 条扫描诊断{showDiagnostics ? ' · 收起' : ' · 展开'}
               </button>
               {showDiagnostics && (
-                <div>
+                <div className="bg-muted text-muted-foreground mt-2 space-y-1 rounded-lg p-3 text-xs">
                   {data.diagnostics.map((d, i) => (
-                    <p key={i}>{d}</p>
+                    <p key={i} className="break-all">
+                      {d}
+                    </p>
                   ))}
                 </div>
               )}
             </section>
           )}
           {selected.length > 0 && (isLibrary || tab === 'available') && (
-            <div className="selection-bar">
-              <span className="selection-number">{selected.length}</span>
-              <strong>个 Skill 已选择</strong>
-              <button className="text-button" disabled={busy} onClick={() => setSelected([])}>
+            <div className="bg-background/95 fixed bottom-4 left-[calc(var(--sidebar-width)+1rem)] z-20 flex items-center gap-3 rounded-xl border p-3 pl-4 shadow-lg">
+              <span className="bg-primary text-primary-foreground rounded-full px-2 py-0.5 text-xs tabular-nums">
+                {selected.length}
+              </span>
+              <strong className="text-sm">个 Skill 已选择</strong>
+              <Button variant="ghost" size="sm" disabled={busy} onClick={() => setSelected([])}>
                 取消选择
-              </button>
-              <button
-                className="primary"
+              </Button>
+              <Button
+                size="sm"
                 disabled={busy || !chosen.length}
                 onClick={() => {
                   if (isLibrary) {
@@ -256,13 +340,20 @@ export function App() {
                   } else installCurrent()
                 }}
               >
-                <Icon name="download" />
                 {busy ? '正在安装…' : isLibrary ? '选择安装目标' : `安装到 ${tool?.name}`}
-              </button>
+              </Button>
             </div>
           )}
         </main>
       </div>
+      {creating && (
+        <CreateSkillDialog
+          target={creating === 'library' ? 'library' : data.tools.find((t) => t.id === creating)!}
+          tools={data.tools}
+          onClose={() => setCreating(null)}
+          onDone={completeCreate}
+        />
+      )}
       {importing && (
         <ImportPanel
           tools={data.tools}
@@ -296,8 +387,10 @@ export function App() {
               : (data.tools.find((t) => t.id === viewing.skill.toolId)?.name ?? '')
           }
           onClose={() => setViewing(null)}
+          onSaved={() => void run(refresh)}
         />
       )}
+      <Toaster position="bottom-right" offset={16} />
     </div>
   )
 }

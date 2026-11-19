@@ -1,9 +1,14 @@
 import { useState } from 'react'
 import type { Skill, Tool, ToolId } from '../../../../shared/types'
-import { Drawer } from '../../components/ui/Drawer'
-import { Icon, ToolIcon } from '../../components/ui/Icons'
+import { SheetPanel } from '../../components/ui/SheetPanel'
+import { FileText, Download, TriangleAlert } from 'lucide-react'
+import { Button } from '../../components/ui/button'
+import { Checkbox } from '../../components/ui/checkbox'
+import { Label } from '../../components/ui/label'
+import { ToolIcon } from '../../components/ui/Icons'
 import { cleanError } from '../../lib/errors'
 import { discoveredBy, supportsTool } from '../../../../shared/compatibility'
+import { cn } from '@/lib/utils'
 
 export function InstallPanel({
   skills,
@@ -67,35 +72,33 @@ export function InstallPanel({
     }
   }
   return (
-    <Drawer
+    <SheetPanel
       title={direct ? '复制到其他工具' : '从仓库安装'}
-      subtitle="复制到目标目录。共享目录中的副本可能被多个工具读取。"
+      subtitle="复制到目标目录。"
       busy={busy}
       onClose={onClose}
       footer={
         <>
-          <span>
+          <span className="text-muted-foreground text-sm">
             {skills.length} 个 Skill · {targets.length} 个目标
           </span>
-          <button
-            className="primary"
-            disabled={busy || !targets.length}
-            onClick={() => void submit()}
-          >
-            <Icon name="download" />
+          <Button disabled={busy || !targets.length} onClick={() => void submit()}>
+            <Download />
             {busy ? '正在安装…' : '复制安装'}
-          </button>
+          </Button>
         </>
       }
     >
-      <div className="form-section">
-        <span className="step-label">01 / 已选 Skill</span>
-        <div className="install-skill-list">
+      <section className="space-y-3">
+        <span className="text-muted-foreground text-xs font-medium tracking-wide">
+          01 / 已选 Skill
+        </span>
+        <div className="divide-y overflow-hidden rounded-xl border">
           {skills.map((s) => (
-            <div key={s.id}>
-              <Icon name="file" />
-              <span>{s.name}</span>
-              <small>
+            <div key={s.id} className="flex items-center gap-2 px-3 py-2">
+              <FileText className="text-muted-foreground size-4 shrink-0" />
+              <span className="min-w-0 flex-1 truncate text-sm">{s.name}</span>
+              <small className="text-muted-foreground text-xs">
                 {s.compatibility && s.compatibility !== 'all'
                   ? `${s.compatibility.length} 个适用工具`
                   : '通用'}
@@ -103,62 +106,65 @@ export function InstallPanel({
             </div>
           ))}
         </div>
-      </div>
-      <div className="form-section">
-        <span className="step-label">02 / 目标工具</span>
-        <div className="install-targets">
+      </section>
+      <section className="space-y-3">
+        <span className="text-muted-foreground text-xs font-medium tracking-wide">
+          02 / 目标工具
+        </span>
+        <div className="install-targets grid grid-cols-1 gap-2">
           {tools.map((t) => {
             const reason = blocked(t.id)
+            const chosen = targets.includes(t.id)
             return (
-              <label
-                className={`install-target ${reason ? 'disabled' : ''} ${targets.includes(t.id) ? 'chosen' : ''}`}
+              <Label
                 key={t.id}
+                className={cn(
+                  'flex items-center gap-3 rounded-lg border px-3 py-2.5 text-sm font-normal',
+                  reason ? 'opacity-50' : 'cursor-pointer hover:bg-accent/60',
+                  chosen && 'border-primary/40 bg-primary/5',
+                )}
               >
                 <ToolIcon id={t.id} />
-                <span>
-                  <strong>{t.name}</strong>
-                  <small>{reason || t.root}</small>
+                <span className="min-w-0 flex-1">
+                  <strong className="block text-sm">{t.name}</strong>
+                  <small className="text-muted-foreground block truncate text-xs">
+                    {reason || t.root}
+                  </small>
                 </span>
-                <input
-                  type="checkbox"
+                <Checkbox
                   aria-label={`安装到 ${t.name}`}
                   disabled={busy || !!reason}
-                  checked={targets.includes(t.id)}
-                  onChange={(e) =>
-                    setTargets(
-                      e.target.checked ? [...targets, t.id] : targets.filter((id) => id !== t.id),
-                    )
+                  checked={chosen}
+                  onCheckedChange={(checked) =>
+                    setTargets(checked ? [...targets, t.id] : targets.filter((id) => id !== t.id))
                   }
                 />
-              </label>
+              </Label>
             )
           })}
         </div>
-      </div>
-      <div className="subtle-note">
-        <Icon name="copy" />
-        <span>
-          按目录复制全部文件，同名内容不会覆盖。适用范围不会限制其他工具读取共享目录；同名副本的加载优先级由目标工具决定。安装后请按下方提示刷新。
-        </span>
-      </div>
+      </section>
       {targets.length > 0 && (
-        <div className="install-instructions">
+        <div className="space-y-1.5 rounded-lg border p-3">
           {tools
             .filter((tool) => targets.includes(tool.id))
             .map((tool) => (
-              <p key={tool.id}>
+              <p key={tool.id} className="text-xs">
                 <strong>{tool.name}：</strong>
-                {tool.instructions}
+                <span className="text-muted-foreground">{tool.instructions}</span>
               </p>
             ))}
         </div>
       )}
       {error && (
-        <div role="alert" className="notice error">
-          <Icon name="warning" />
+        <div
+          role="alert"
+          className="text-destructive flex items-start gap-2 rounded-lg border border-destructive/40 bg-destructive/10 p-3 text-sm"
+        >
+          <TriangleAlert className="mt-0.5 size-4 shrink-0" />
           {error}
         </div>
       )}
-    </Drawer>
+    </SheetPanel>
   )
 }

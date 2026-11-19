@@ -6,3 +6,9 @@ release-browser/
 release-library/
 release-renamed/
 *.log
+
+# Separate Remotion project for app intro videos
+videos/
+
+# ZCode session artifacts
+.zcode/

@@ -1,4 +1,4 @@
-import type { Compatibility, ToolId } from '../../shared/types'
+import type { Compatibility, ToolId, TrashEntry } from '../../shared/types'
 
 export interface RecordEntry {
   id: string
@@ -14,4 +14,8 @@ export interface LibraryEntry {
   source: string
   compatibility: Compatibility
   addedAt: string
+}
+export interface TrashRecord extends TrashEntry {
+  installation?: RecordEntry
+  library?: LibraryEntry
 }

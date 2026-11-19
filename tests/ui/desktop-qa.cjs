@@ -1,5 +1,5 @@
 // Real Electron renderer + preload; mocked IPC data. Never accesses real Skill directories.
-const { app, BrowserWindow, ipcMain } = require('electron')
+const { app, BrowserWindow, ipcMain, nativeTheme } = require('electron')
 const path = require('node:path')
 const fs = require('node:fs/promises')
 app
@@ -68,27 +68,57 @@ app
         warnings: [],
       },
     ]
+    let trash = []
+    let settings = { theme: 'system', tools: {} }
+    const written = {}
     const invocations = []
+    const enabledTools = () => tools.filter((tool) => settings.tools[tool.id]?.enabled !== false)
     const snapshotSkills = () =>
-      skills.map((skill) => ({
-        ...skill,
-        installedBy: skill.managed ? skill.toolId : undefined,
-        discoveredBy: tools
-          .filter((tool) => tool.discoveryRoots.some((root) => skill.path.startsWith(root + '/')))
-          .map((tool) => tool.id),
-      }))
+      skills
+        .map((skill) => ({
+          ...skill,
+          installedBy: skill.managed ? skill.toolId : undefined,
+          discoveredBy: enabledTools()
+            .filter((tool) => tool.discoveryRoots.some((root) => skill.path.startsWith(root + '/')))
+            .map((tool) => tool.id),
+        }))
+        .filter((skill) => skill.discoveredBy.length > 0)
     const handler = (name, action) =>
       ipcMain.handle(name, async (_event, ...args) => {
         invocations.push({ name, args })
         return action(...args)
       })
     handler('scan', () => ({
-      tools,
+      tools: enabledTools(),
       skills: snapshotSkills(),
       library,
+      trash,
       libraryRoot: 'C:/Users/demo/AppData/Roaming/skill-manage/library',
       diagnostics: [],
     }))
+    const recycle = (id, central = false) => {
+      const item = (central ? library : skills).find((skill) => skill.id === id)
+      trash.push({
+        id: 'trash-' + id,
+        skill: item,
+        originalPath: item.path,
+        deletedAt: new Date().toISOString(),
+      })
+      if (central) library = library.filter((skill) => skill.id !== id)
+      else skills = skills.filter((skill) => skill.id !== id)
+    }
+    handler('uninstall', (id) => recycle(id))
+    handler('delete-external', (id) => recycle(id))
+    handler('library-delete', (id) => recycle(id, true))
+    handler('trash-restore', (id) => {
+      const entry = trash.find((item) => item.id === id)
+      if (entry.skill.toolId === 'library') library.push(entry.skill)
+      else skills.push(entry.skill)
+      trash = trash.filter((item) => item.id !== id)
+    })
+    handler('trash-delete', (id) => {
+      trash = trash.filter((item) => item.id !== id)
+    })
     handler('library-install', (ids, targets) => {
       for (const id of ids)
         for (const target of targets) {
@@ -141,6 +171,64 @@ app
         ? '---\nname: code-review\ndescription: 检查代码变更\n---\n# 代码审查\n\n检查正确性、回归风险与测试覆盖。\n\n## 检查步骤\n\n1. 阅读变更。\n2. 检查边界。\n\n| 检查项 | 要求 |\n| --- | --- |\n| 正确性 | 明确触发条件 |\n\n<script>window.pwned=true</script>\n\n![remote](https://example.com/tracking.png)'
         : '# 附属检查清单\n\n- 保留用户改动',
     )
+    handler('skill-create', (input) => {
+      if (input.target === 'library') {
+        library.push({
+          id: 'created-' + input.name,
+          name: input.name,
+          metadataName: input.name,
+          description: input.description,
+          compatibility: input.compatibility,
+          toolId: 'library',
+          path: 'C:/Users/demo/AppData/Roaming/skill-manage/library/created/' + input.name,
+          managed: true,
+          linked: false,
+          warnings: [],
+        })
+      } else {
+        skills.push({
+          id: 'created-' + input.name,
+          name: input.name,
+          metadataName: input.name,
+          description: input.description,
+          toolId: input.target,
+          managed: false,
+          linked: false,
+          path: tools.find((t) => t.id === input.target).root + '/' + input.name,
+          warnings: [],
+        })
+      }
+      return { path: input.name, name: input.name, description: input.description, warnings: [] }
+    })
+    handler('skill-write-file', (id, relativePath, content) => {
+      const skill = [...library, ...skills].find((s) => s.id === id)
+      if (skill) written[relativePath] = content
+      return skill
+    })
+    handler('window-minimize', () => {})
+    handler('window-maximize-toggle', () => false)
+    handler('window-close', () => {})
+    handler('window-is-maximized', () => false)
+    const updateStatus = {
+      currentVersion: '2.0.0',
+      updateSupported: true,
+      state: 'not-available',
+    }
+    handler('updater-get-status', () => updateStatus)
+    handler('updater-check', () => updateStatus)
+    handler('updater-download', () => updateStatus)
+    handler('updater-quit-install', () => {})
+    handler('settings-get', () => settings)
+    handler('settings-save', (next) => {
+      settings = next
+      nativeTheme.themeSource = next.theme
+      return settings
+    })
+    handler('settings-theme', (theme) => {
+      settings = { ...settings, theme }
+      nativeTheme.themeSource = theme
+    })
+    handler('pick-directory', () => null)
     const window = new BrowserWindow({
       show: false,
       width: 1440,
@@ -159,7 +247,11 @@ app
         console.error(event.message)
       }
     })
-    const evaluate = (code) => window.webContents.executeJavaScript(code)
+    const evaluate = (code) =>
+      window.webContents.executeJavaScript(code).catch((e) => {
+        console.error('EVAL FAIL >>>', code.slice(0, 300), '<<<', e.message)
+        throw e
+      })
     const wait = async (code) => {
       const deadline = Date.now() + 6000
       while (!(await evaluate(code))) {
@@ -167,9 +259,27 @@ app
         await new Promise((resolve) => setTimeout(resolve, 80))
       }
     }
+    // Radix DropdownMenu opens on pointerdown, not on click alone.
+    const openRowMenu = async () => {
+      await evaluate(
+        `(() => { const b = document.querySelector('.skill-row [aria-label$="更多操作"]'); b.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, pointerId: 1, button: 0 })); b.click() })()`,
+      )
+    }
+    // React controlled inputs need the native value setter + input event.
+    const fill = async (selector, value) => {
+      await evaluate(
+        `(() => { const el = document.querySelector(${JSON.stringify(selector)}); const proto = el.tagName === 'TEXTAREA' ? window.HTMLTextAreaElement : window.HTMLInputElement; Object.getOwnPropertyDescriptor(proto.prototype, 'value').set.call(el, ${JSON.stringify(value)}); el.dispatchEvent(new Event('input', { bubbles: true })) })()`,
+      )
+    }
     const click = async (text) => {
       await evaluate(
-        `(() => { const b = [...document.querySelectorAll('button')].find(b => b.textContent.trim() === ${JSON.stringify(text)}); if (!b) throw new Error('Missing button: '+${JSON.stringify(text)}); b.click() })()`,
+        `(() => { const b = [...document.querySelectorAll('button, [role="menuitem"]')].find(b => b.textContent.trim() === ${JSON.stringify(text)}); if (!b) throw new Error('Missing button: '+${JSON.stringify(text)}); b.click() })()`,
+      )
+    }
+    // Radix Tabs activate on mousedown with pointer detail, not on click alone.
+    const activate = async (text) => {
+      await evaluate(
+        `(() => { const b = [...document.querySelectorAll('[role="tab"]')].find(b => b.textContent.trim() === ${JSON.stringify(text)}); if (!b) throw new Error('Missing tab: '+${JSON.stringify(text)}); b.dispatchEvent(new MouseEvent('mousedown', { button: 0, detail: 1, bubbles: true })); b.click() })()`,
       )
     }
     const screenshot = async (name) => {
@@ -187,11 +297,29 @@ app
     await wait(
       "[...document.querySelectorAll('.tool-icon img')].every(i => i.complete && i.naturalWidth > 0)",
     )
+    // Undeployed tools recede to a muted grayscale tile; deployed ones stay coloured.
+    if (
+      !(await evaluate(
+        "!!document.querySelector('.skill-row .tool-icon.grayscale') && !!document.querySelector('.skill-row .tool-icon:not(.grayscale)')",
+      ))
+    )
+      throw new Error('Deployment states are not visually distinguished')
     await screenshot('library-redesign')
-    await click('工具专用')
-    if ((await evaluate("document.querySelectorAll('.skill-row').length")) !== 2)
+    // 一键创建 Skill 模板（库目标，兼容范围默认全部 → 不影响后续工具筛选计数）
+    await click('新建 Skill')
+    await wait('!!document.querySelector(\'[role="dialog"]\')')
+    await fill('#skill-name', 'qa-created')
+    await fill('#skill-description', 'QA 创建的模板，用于验证一键创建。')
+    await evaluate('document.querySelector(\'[aria-label="适用 Claude Code"]\').click()')
+    await click('创建模板')
+    await wait('!document.querySelector(\'[role="dialog"]\')')
+    if (!library.some((s) => s.name === 'qa-created')) throw new Error('Create template failed')
+    await wait("document.querySelectorAll('.skill-row').length === 7")
+    await activate('工具专用')
+    // 2 mock-specific skills + the freshly created Claude-only template.
+    if ((await evaluate("document.querySelectorAll('.skill-row').length")) !== 3)
       throw new Error('Specific filter failed')
-    await click('全部技能')
+    await activate('全部技能')
     await evaluate('document.querySelector(\'[aria-label="选择 code-review"]\').click()')
     await click('选择安装目标')
     await wait("!!document.querySelector('.install-targets')")
@@ -202,7 +330,7 @@ app
     await evaluate('document.querySelector(\'[aria-label="安装到 Codex"]\').click()')
     await screenshot('install-redesign')
     await click('复制安装')
-    await wait("!document.querySelector('.drawer')")
+    await wait('!document.querySelector(\'[data-slot="sheet-content"]\')')
     if (
       !invocations.some(
         (i) =>
@@ -220,7 +348,7 @@ app
     await screenshot('tool-redesign')
     await click('安装到 Codex')
     await wait(
-      "document.querySelector('.filter-tabs button.active').textContent.includes('已发现')",
+      'document.querySelector(\'[data-slot="tabs-trigger"][data-state="active"]\').textContent.includes(\'已发现\')',
     )
     if (!skills.some((s) => s.toolId === 'codex' && s.name === 'api-design'))
       throw new Error('Tool batch install failed')
@@ -229,10 +357,14 @@ app
     )
     await click('收录')
     await wait("!!document.querySelector('.collect-preview')")
-    if (!(await evaluate('document.querySelector(\'[aria-label="适用 ZCode"]\').checked')))
+    if (
+      !(await evaluate(
+        'document.querySelector(\'[data-slot="sheet-content"] [aria-label="适用 ZCode"]\')?.dataset.state === \'checked\'',
+      ))
+    )
       throw new Error('Collection default scope failed')
     await click('收入仓库')
-    await wait("!document.querySelector('.drawer')")
+    await wait('!document.querySelector(\'[data-slot="sheet-content"]\')')
     if (!library.some((s) => s.name === 'project-context' && s.compatibility.includes('zcode')))
       throw new Error('Collection failed')
     await evaluate("document.querySelector('.nav-item').click()")
@@ -240,16 +372,24 @@ app
     await screenshot('import-redesign')
     await evaluate("document.querySelector('.drop-zone').click()")
     await wait("!!document.querySelector('.candidate-option')")
-    await evaluate('document.querySelector(\'.drawer [aria-label="适用 Cursor"]\').click()')
-    await wait('document.querySelector(\'.drawer [aria-label="适用 Cursor"]\').checked')
-    await evaluate('document.querySelector(\'.drawer [aria-label="适用 Qoder"]\').click()')
-    await wait('document.querySelector(\'.drawer [aria-label="适用 Qoder"]\').checked')
     await evaluate(
-      "document.querySelector('.drawer .compatibility-picker').scrollIntoView({block: 'center'})",
+      'document.querySelector(\'[data-slot="sheet-content"] [aria-label="适用 Cursor"]\').click()',
+    )
+    await wait(
+      'document.querySelector(\'[data-slot="sheet-content"] [aria-label="适用 Cursor"]\')?.dataset.state === \'checked\'',
+    )
+    await evaluate(
+      'document.querySelector(\'[data-slot="sheet-content"] [aria-label="适用 Qoder"]\').click()',
+    )
+    await wait(
+      'document.querySelector(\'[data-slot="sheet-content"] [aria-label="适用 Qoder"]\')?.dataset.state === \'checked\'',
+    )
+    await evaluate(
+      "document.querySelector('[data-slot=\"sheet-content\"] .compatibility-picker').scrollIntoView({block: 'center'})",
     )
     await screenshot('multi-compatibility')
     await click('收入仓库')
-    await wait("!document.querySelector('.drawer')")
+    await wait('!document.querySelector(\'[data-slot="sheet-content"]\')')
     if (
       !library.some(
         (s) =>
@@ -264,19 +404,79 @@ app
     )
     await wait("document.querySelectorAll('.skill-row').length >= 3")
     if (
-      !(await evaluate(
-        "document.querySelector('.skill-table').textContent.includes('共享 / 兼容目录')",
-      ))
+      !(await evaluate("document.querySelector('.skill-table').textContent.includes('共享 Skill')"))
     )
       throw new Error('Shared discovery label missing')
+    await evaluate(
+      "[...document.querySelectorAll('.ownership-filters button')].find(b => b.textContent.includes('自己的 Skill')).click()",
+    )
+    await wait(
+      "document.querySelector('.ownership-filters [aria-pressed=\"true\"]').textContent.includes('自己的 Skill')",
+    )
+    if ((await evaluate("document.querySelectorAll('.skill-row').length")) !== 0)
+      throw new Error('Own filter should exclude shared directories')
+    await evaluate(
+      "[...document.querySelectorAll('.ownership-filters button')].find(b => b.textContent.includes('共享 Skill')).click()",
+    )
+    await wait(
+      "document.querySelector('.ownership-filters [aria-pressed=\"true\"]').textContent.includes('共享 Skill')",
+    )
+    if ((await evaluate("document.querySelectorAll('.skill-row').length")) < 3)
+      throw new Error('Shared filter missing readable skills')
+    await screenshot('shared-skills')
+    await openRowMenu()
+    await click('移入回收站')
+    await wait(
+      "document.querySelectorAll('.skill-row').length >= 2 && !!document.querySelector('[data-sonner-toast][data-type=\"success\"]')",
+    )
+    if (trash.length !== 1) throw new Error('Target deletion did not recycle Skill')
+    await evaluate("document.querySelector('.trash-nav').click()")
+    await wait("document.querySelectorAll('.trash-row').length === 1")
+    await screenshot('trash-populated')
+    window.setSize(1020, 760)
+    await screenshot('trash-compact')
+    if (await evaluate('document.documentElement.scrollWidth > window.innerWidth'))
+      throw new Error('Trash overflows at minimum window size')
+    window.setSize(1440, 960)
+    await click('还原')
+    await wait("document.querySelectorAll('.trash-row').length === 0")
+    if (trash.length !== 0) throw new Error('Trash restoration failed')
+    await evaluate(
+      "[...document.querySelectorAll('.nav-item')].find(b => b.textContent.includes('Cursor')).click()",
+    )
     await click('从仓库安装')
     await evaluate('document.querySelector(\'[aria-label="选择 local-skill"]\').click()')
     await click('安装到 Cursor')
     await wait(
-      "document.querySelector('.filter-tabs button.active').textContent.includes('已发现')",
+      'document.querySelector(\'[data-slot="tabs-trigger"][data-state="active"]\').textContent.includes(\'已发现\')',
     )
     if (!skills.some((skill) => skill.toolId === 'cursor' && skill.name === 'local-skill'))
       throw new Error('New tool installation failed')
+    await evaluate(
+      "[...document.querySelectorAll('.ownership-filters button')].find(b => b.textContent.includes('自己的 Skill')).click()",
+    )
+    await wait(
+      "document.querySelector('.ownership-filters [aria-pressed=\"true\"]').textContent.includes('自己的 Skill')",
+    )
+    if ((await evaluate("document.querySelectorAll('.skill-row').length")) !== 1)
+      throw new Error('Own filter should show the current target installation')
+    await screenshot('own-skills')
+    await evaluate(
+      "[...document.querySelectorAll('.nav-item')].find(b => b.textContent.includes('ZCode')).click()",
+    )
+    await openRowMenu()
+    await click('移入回收站')
+    await wait('!!document.querySelector(\'[data-sonner-toast][data-type="success"]\')')
+    await evaluate("document.querySelector('.trash-nav').click()")
+    await wait("document.querySelectorAll('.trash-row').length === 1")
+    await click('永久删除')
+    await wait("document.querySelectorAll('.trash-row').length === 0")
+    if (
+      !invocations.some((i) => i.name === 'delete-external') ||
+      !invocations.some((i) => i.name === 'trash-delete')
+    )
+      throw new Error('External / permanent deletion IPC failed')
+    await screenshot('trash-empty')
     await evaluate(
       "[...document.querySelectorAll('.nav-item')].find(b => b.textContent.includes('Qoder')).click()",
     )
@@ -296,6 +496,16 @@ app
     )
       throw new Error('Restricted skill leaked into unrelated install list')
     await evaluate("document.querySelector('.nav-item').click()")
+    await openRowMenu()
+    await click('移出仓库')
+    await wait('!!document.querySelector(\'[data-sonner-toast][data-type="success"]\')')
+    await evaluate("document.querySelector('.trash-nav').click()")
+    await wait("document.querySelectorAll('.trash-row').length === 1")
+    await click('还原')
+    await wait("document.querySelectorAll('.trash-row').length === 0")
+    if (!invocations.some((i) => i.name === 'library-delete'))
+      throw new Error('Library deletion IPC failed')
+    await evaluate("document.querySelector('.nav-item').click()")
     await click('code-review')
     await wait("!!document.querySelector('.markdown-body table')")
     if (
@@ -305,13 +515,31 @@ app
     )
       throw new Error('Unsafe preview')
     await screenshot('viewer-redesign')
-    await click('源码')
+    await activate('源码')
     if (
       !(await evaluate(
         "document.querySelector('.source-code').textContent.includes('name: code-review')",
       ))
     )
       throw new Error('Source view failed')
+    // IDEA-style file tree: a collapsible folder node with its child nested.
+    if ((await evaluate("document.querySelectorAll('.file-item').length")) !== 3)
+      throw new Error('File tree structure missing')
+    await click('references')
+    await wait("document.querySelectorAll('.file-item').length === 2")
+    await click('references')
+    await wait("document.querySelectorAll('.file-item').length === 3")
+    // Edit mode: modify, save via the button, verify the write IPC fired.
+    await activate('编辑')
+    await wait('!!document.querySelector(\'[aria-label="编辑文件内容"]\')')
+    await fill('[aria-label="编辑文件内容"]', '---\nname: code-review\n---\n# QA 编辑后的内容')
+    await click('保存')
+    await wait(
+      "[...document.querySelectorAll('[data-sonner-toast]')].some(t => t.textContent.includes('已保存'))",
+    )
+    if (!invocations.some((i) => i.name === 'skill-write-file'))
+      throw new Error('Skill file write IPC failed')
+    await activate('源码')
     await evaluate(
       "[...document.querySelectorAll('.file-item')].find(b => b.textContent.includes('checklist')).click()",
     )
@@ -320,6 +548,58 @@ app
       "document.querySelector('.skill-viewer').dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))",
     )
     await wait("!document.querySelector('.skill-viewer')")
+    if (!written['SKILL.md'] || !written['SKILL.md'].includes('QA 编辑后的内容'))
+      throw new Error('Written content missing')
+    // Settings page: theme radio, library location, agent scan directories
+    await evaluate(
+      "[...document.querySelectorAll('.nav-item')].find(b => b.textContent.includes('设置')).click()",
+    )
+    await wait('!!document.querySelector(\'.settings-view [role="radiogroup"]\')')
+    if (
+      !(await evaluate(
+        "document.querySelector('.settings-view').textContent.includes('中央仓库位置') && document.querySelector('.settings-view').textContent.includes('Agent 扫描目录') && document.querySelector('.settings-view').textContent.includes('默认位置') && document.querySelector('.settings-view').textContent.includes('当前版本 v2.0.0')",
+      ))
+    )
+      throw new Error('Settings sections missing')
+    // Anchor on the exact token values so the check works regardless of the
+    // host OS scheme. Light = --background oklch(1 0 0); dark = oklch(0.141 …).
+    const BG_LIGHT = 'oklch(1 0 0)'
+    const BG_DARK = 'oklch(0.141 0.005 285.823)'
+    await evaluate(
+      "[...document.querySelectorAll('.settings-view label')].find(l => l.textContent.includes('明亮模式')).click()",
+    )
+    await wait(`getComputedStyle(document.body).backgroundColor === '${BG_LIGHT}'`)
+    await screenshot('settings-light')
+    // Light-mode shot of the main workspace for the README.
+    await evaluate(
+      "[...document.querySelectorAll('.nav-item')].find(b => b.textContent.includes('中央仓库')).click()",
+    )
+    await wait("document.querySelectorAll('.skill-row').length >= 1")
+    await screenshot('library-light')
+    await evaluate(
+      "[...document.querySelectorAll('.nav-item')].find(b => b.textContent.includes('设置')).click()",
+    )
+    await wait('!!document.querySelector(\'.settings-view [role="radiogroup"]\')')
+    await evaluate(
+      "[...document.querySelectorAll('.settings-view label')].find(l => l.textContent.includes('黑暗模式')).click()",
+    )
+    await wait(`getComputedStyle(document.body).backgroundColor === '${BG_DARK}'`)
+    await screenshot('settings-dark')
+    // Agent 启用/停用：停用后导航与安装目标同步消失，重新启用即恢复。
+    await evaluate('document.querySelector(\'[aria-label="启用 Codex"]\').click()')
+    await wait(
+      "[...document.querySelectorAll('.nav-item')].every(b => !b.textContent.includes('Codex'))",
+    )
+    await evaluate('document.querySelector(\'[aria-label="启用 Codex"]\').click()')
+    await wait(
+      "[...document.querySelectorAll('.nav-item')].some(b => b.textContent.includes('Codex'))",
+    )
+    await evaluate(
+      "[...document.querySelectorAll('.nav-item')].find(b => b.textContent.includes('中央仓库')).click()",
+    )
+    await wait("document.querySelectorAll('.skill-row').length >= 1")
+    await screenshot('library-dark')
+    await evaluate("window.skills.setTheme('system')")
     window.setSize(1020, 760)
     await screenshot('library-compact')
     if (await evaluate('document.documentElement.scrollWidth > window.innerWidth'))
@@ -339,7 +619,7 @@ app
     await screenshot('empty-redesign')
     if (errors.length) throw new Error(errors.join('\n'))
     console.log(
-      'UI passed: library, scope filter, icons, multi-target install, tool selection, collection, local import, Markdown/source/files, compact layout, empty state',
+      'UI passed: library, scope and ownership filters, icons, installs, collection, import, trash deletion/restore/permanent deletion, Markdown/source/files, compact layout, empty state',
     )
     app.quit()
   })

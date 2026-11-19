@@ -10,9 +10,11 @@ export function useWorkspace() {
     diagnostics: [],
     library: [],
     libraryRoot: '',
+    trash: [],
   })
-  const [page, setPage] = useState<ToolId | 'library'>('library')
+  const [page, setPage] = useState<ToolId | 'library' | 'trash' | 'settings'>('library')
   const [tab, setTab] = useState<'installed' | 'available'>('installed')
+  const [ownership, setOwnership] = useState<'all' | 'own' | 'shared'>('all')
   const [query, setQuery] = useState('')
   const [scope, setScope] = useState<ToolId | 'all' | 'any' | 'specific'>('any')
   const [busy, setBusy] = useState(false)
@@ -20,6 +22,8 @@ export function useWorkspace() {
   const [message, setMessage] = useState<{ text: string; error?: boolean } | null>(null)
   const [viewing, setViewing] = useState<SkillDetail | null>(null)
   const [importing, setImporting] = useState(false)
+  /** Where the 新建 Skill dialog is creating into: the library or a tool id. */
+  const [creating, setCreating] = useState<'library' | ToolId | null>(null)
   const [collect, setCollect] = useState<Skill | undefined>()
   const [installing, setInstalling] = useState<Skill[] | null>(null)
   const [direct, setDirect] = useState<Skill | undefined>()
@@ -44,6 +48,7 @@ export function useWorkspace() {
   }, [])
   const navigate = (next: typeof page) => {
     setPage(next)
+    setOwnership('all')
     setTab('installed')
     setQuery('')
     setSelected([])
@@ -57,9 +62,25 @@ export function useWorkspace() {
   }
   const tool = data.tools.find((t) => t.id === page)
   const isLibrary = page === 'library'
-  const installed = isLibrary ? [] : data.skills.filter((s) => discoveredBy(s, page))
-  const available = data.library.filter((s) => !isLibrary && supportsTool(s.compatibility, page))
-  const items = (isLibrary ? data.library : tab === 'installed' ? installed : available).filter(
+  const isTrash = page === 'trash'
+  const isSettings = page === 'settings'
+  const installed = !tool ? [] : data.skills.filter((s) => discoveredBy(s, tool.id))
+  const own = installed.filter(
+    (s) => s.path.replaceAll('\\', '/') === `${tool?.root.replaceAll('\\', '/')}/${s.name}`,
+  )
+  const shared = installed.filter((s) => !own.includes(s))
+  const available = data.library.filter((s) => !!tool && supportsTool(s.compatibility, tool.id))
+  const items = (
+    isLibrary
+      ? data.library
+      : tab === 'installed'
+        ? ownership === 'own'
+          ? own
+          : ownership === 'shared'
+            ? shared
+            : installed
+        : available
+  ).filter(
     (s) =>
       `${s.name} ${s.description}`.toLowerCase().includes(query.toLowerCase()) &&
       (!isLibrary ||
@@ -109,6 +130,11 @@ export function useWorkspace() {
     setSelected([])
     setMessage({ text: '复制安装完成，请在目标工具中刷新技能列表。' })
   }
+  const completeCreate = async (name: string) => {
+    await refresh()
+    setCreating(null)
+    setMessage({ text: `Skill 模板「${name}」已创建，可以继续编辑 SKILL.md 补充内容。` })
+  }
 
   return {
     data,
@@ -129,6 +155,8 @@ export function useWorkspace() {
     setViewing,
     importing,
     setImporting,
+    creating,
+    setCreating,
     collect,
     setCollect,
     installing,
@@ -145,6 +173,12 @@ export function useWorkspace() {
     changeTab,
     tool,
     isLibrary,
+    isTrash,
+    isSettings,
+    ownership,
+    setOwnership,
+    own,
+    shared,
     installed,
     available,
     items,
@@ -157,6 +191,7 @@ export function useWorkspace() {
     installCurrent,
     completeImport,
     completeInstall,
+    completeCreate,
   }
 }
 export type WorkspaceController = ReturnType<typeof useWorkspace>

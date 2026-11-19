@@ -4,6 +4,22 @@ import os from 'node:os'
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 import type { Candidate } from '../../shared/types'
+import { inspectSkill } from './skill-parser'
+
+export async function nameGitRootSkill(repository: string): Promise<string> {
+  try {
+    const rootSkill = await inspectSkill(repository)
+    const named = await inspectSkill(repository, rootSkill.metadataName)
+    if (named.name === path.basename(repository)) return repository
+    const renamed = path.join(path.dirname(repository), 'skill', named.name)
+    await fs.mkdir(path.dirname(renamed), { recursive: true })
+    await fs.rename(repository, renamed)
+    return renamed
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+    return repository
+  }
+}
 
 /** Tracks explicitly selected sources and owns temporary Git checkouts. */
 export class SourceService {
@@ -19,7 +35,11 @@ export class SourceService {
       throw new Error('仅支持不含凭据的 HTTPS Git 地址')
     const temporary = await fs.mkdtemp(path.join(os.tmpdir(), 'skills-manager-'))
     this.temporaryDirectories.push(temporary)
-    const repository = path.join(temporary, 'repo')
+    const repositoryName = decodeURIComponent(
+      parsed.pathname.split('/').filter(Boolean).at(-1) ?? '',
+    ).replace(/\.git$/i, '')
+    if (!/^[a-zA-Z0-9][a-zA-Z0-9._-]*$/.test(repositoryName)) throw new Error('Git 仓库名称无效')
+    let repository = path.join(temporary, repositoryName)
     try {
       await promisify(execFile)(
         'git',
@@ -41,6 +61,9 @@ export class SourceService {
           env: { ...process.env, GIT_TERMINAL_PROMPT: '0', GCM_INTERACTIVE: 'never' },
         },
       )
+      // A root Skill has no meaningful parent folder in a temporary checkout.
+      // Give it its declared name before discovery, so subsequent copies keep it.
+      repository = await nameGitRootSkill(repository)
       const candidates = await this.discover(repository)
       for (const candidate of candidates)
         this.allowedSources.set(
