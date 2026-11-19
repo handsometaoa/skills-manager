@@ -57,11 +57,14 @@ export function Sidebar({
   return (
     <aside
       className={cn(
-        'app-region-drag flex w-(--sidebar-width) shrink-0 flex-col gap-4 border-r bg-sidebar p-3 text-sidebar-foreground',
+        'relative flex w-(--sidebar-width) shrink-0 flex-col gap-4 border-r bg-sidebar p-3 text-sidebar-foreground',
         // Keep clear of the macOS traffic lights inset into the title bar.
         isMac && 'pt-10',
       )}
     >
+      {/* macOS only: the strip above the brand stays a window-drag zone
+          around the traffic lights; the rest of the sidebar must stay clickable. */}
+      {isMac && <div className="app-region-drag absolute inset-x-0 top-0 h-10" />}
       <div className="flex items-center gap-2.5 px-1.5 py-2">
         <span className="flex size-8 items-center justify-center rounded-lg bg-primary text-primary-foreground">
           <Library className="size-4" />

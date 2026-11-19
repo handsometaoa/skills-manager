@@ -304,6 +304,14 @@ app
       ))
     )
       throw new Error('Deployment states are not visually distinguished')
+    // Navigation must never sit inside a window-drag region: synthetic .click()
+    // bypasses app-region hit-testing, so real mouse clicks would break silently.
+    if (
+      await evaluate(
+        "[...document.querySelectorAll('.nav-item')].some(b => getComputedStyle(b.closest('aside') ?? b).webkitAppRegion === 'drag')",
+      )
+    )
+      throw new Error('Sidebar is a drag region and would swallow real clicks')
     await screenshot('library-redesign')
     // 一键创建 Skill 模板（库目标，兼容范围默认全部 → 不影响后续工具筛选计数）
     await click('新建 Skill')
