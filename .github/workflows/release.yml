@@ -8,25 +8,16 @@ permissions:
   contents: write
 
 jobs:
-  windows:
-    runs-on: windows-latest
+  # Build only; publishing happens in one place so artifacts always land on
+  # the same release (electron-builder's own GitHub publisher would otherwise
+  # create one draft per runner).
+  build:
+    strategy:
+      matrix:
+        os: [windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
     env:
-      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version-file: .nvmrc
-          cache: npm
-      - run: npm ci
-      - run: npm run dist
-
-  macos:
-    needs: windows
-    runs-on: macos-latest
-    env:
-      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      # No signing certificate in CI; skip identity discovery.
+      # macOS builds unsigned in CI until a certificate is configured.
       CSC_IDENTITY_AUTO_DISCOVERY: false
     steps:
       - uses: actions/checkout@v4
@@ -35,4 +26,26 @@ jobs:
           node-version-file: .nvmrc
           cache: npm
       - run: npm ci
-      - run: npm run dist
+      - run: npm run dist -- --publish never
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist-${{ matrix.os }}
+          path: |
+            release/*.exe
+            release/*.dmg
+            release/*.blockmap
+            release/*.yml
+          if-no-files-found: error
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: dist/**
+          generate_release_notes: true
