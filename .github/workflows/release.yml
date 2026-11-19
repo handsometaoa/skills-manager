@@ -1,0 +1,47 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - run: npm run dist
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            release/Skills Manager Setup *.exe
+            release/*.blockmap
+            release/latest.yml
+          generate_release_notes: true
+
+  macos:
+    needs: windows
+    runs-on: macos-latest
+    env:
+      # No signing certificate in CI; skip identity discovery.
+      CSC_IDENTITY_AUTO_DISCOVERY: false
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - run: npm run dist
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            release/*.dmg
+            release/latest-mac.yml

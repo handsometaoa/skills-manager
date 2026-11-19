@@ -206,9 +206,10 @@ Windows 的 NSIS 安装包在 Windows 上构建，macOS 的 DMG 在 macOS 上构
 
 ```sh
 npm version patch   # 或 minor / major
-npm run dist
-gh release create v2.0.1 "release/Skills Manager Setup 2.0.1.exe" "release/*.blockmap" "release/latest.yml"
+git push --follow-tags
 ```
+
+推送 `v*` 标签会触发 GitHub Actions（`.github/workflows/release.yml`）在 Windows runner 上构建 NSIS 安装包、macOS runner 上构建 x64 与 arm64 两个 DMG，并自动附加到对应 Release（含 `latest.yml` / `latest-mac.yml` 更新元数据）。也可以在本机 `npm run dist` 后手动 `gh release create` 上传。
 
 应用内置自动更新（electron-updater + GitHub Releases）：启动约 5 秒后静默检查新版本，发现后在 **设置 → 关于与更新** 中手动下载并一键重启安装；下载使用差分更新（blockmap），发布渠道配置见 `package.json` 的 `publish` 字段。注意：macOS 在完成签名与公证前无法自动更新；Windows 未签名不影响更新，但会触发 SmartScreen 提示。
 
