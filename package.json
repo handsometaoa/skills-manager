@@ -127,6 +127,9 @@
     },
     "dmg": {
       "artifactName": "Skills-Manager-${version}-${arch}.${ext}"
+    },
+    "zip": {
+      "artifactName": "Skills-Manager-${version}-${arch}-mac.${ext}"
     }
   }
 }

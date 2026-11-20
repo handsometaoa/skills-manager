@@ -34,6 +34,7 @@ jobs:
             release/*.exe
             release/*.dmg
             release/*.blockmap
+            release/*.zip
             release/*.yml
           if-no-files-found: error
 
