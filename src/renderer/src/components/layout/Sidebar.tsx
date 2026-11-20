@@ -1,4 +1,4 @@
-import { Library, Settings, Trash2 } from 'lucide-react'
+import { FolderGit2, Library, Settings, Trash2 } from 'lucide-react'
 import { ToolIcon } from '../ui/Icons'
 import type { WorkspaceController } from '../../features/workspace/useWorkspace'
 import { cn } from '@/lib/utils'
@@ -102,6 +102,16 @@ export function Sidebar({
             />
           ))}
         </nav>
+      </div>
+
+      <div className="flex flex-col gap-1">
+        <div className="text-muted-foreground px-2.5 pb-1 text-xs font-medium">项目</div>
+        <NavItem
+          active={page === 'project'}
+          onClick={() => navigate('project')}
+          icon={<FolderGit2 className="text-muted-foreground size-4" />}
+          label="项目 Skill"
+        />
       </div>
 
       <div className="flex flex-col gap-1">

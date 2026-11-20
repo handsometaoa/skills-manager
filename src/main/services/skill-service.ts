@@ -480,6 +480,32 @@ export class SkillStore {
       throw new Error('暂不删除链接目录，请在文件管理器中处理链接')
     await this.recycle(skill)
   }
+  /**
+   * Recycles a skill by absolute path (project-level skills are unmanaged and
+   * live outside the scanned user directories). Refuses anything the app
+   * manages or cannot fully validate as a skill directory.
+   */
+  async deleteExternalPath(absPath: string) {
+    const resolved = path.resolve(absPath)
+    if (this.records.some((r) => r.path === resolved))
+      throw new Error('该目录由应用管理，请在对应工具页面使用卸载')
+    let skill: Skill
+    try {
+      const candidate = await this.inspect(resolved)
+      skill = {
+        ...candidate,
+        id: `external:${resolved}`,
+        toolId: 'library',
+        managed: false,
+        linked: false,
+      }
+    } catch (e) {
+      throw new Error(`仅支持删除包含合法 SKILL.md 的目录：${(e as Error).message}`)
+    }
+    if ((await fs.lstat(resolved)).isSymbolicLink())
+      throw new Error('暂不删除链接目录，请在文件管理器中处理链接')
+    await this.recycle(skill)
+  }
   async uninstall(id: string) {
     const record = this.records.find((r) => r.id === id)
     if (!record) throw new Error('仅支持卸载本工具安装的 Skill')

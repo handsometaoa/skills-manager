@@ -228,7 +228,62 @@ app
       settings = { ...settings, theme }
       nativeTheme.themeSource = theme
     })
-    handler('pick-directory', () => null)
+    handler('pick-directory', () => 'C:/demo-project')
+    const projectScan = {
+      projectPath: 'C:/demo-project',
+      tools: [
+        ['claude', 'Claude Code', '.claude/skills'],
+        ['codex', 'Codex', '.agents/skills'],
+        ['cursor', 'Cursor', '.cursor/skills'],
+        ['qoder', 'Qoder', '.qoder/skills'],
+        ['opencode', 'OpenCode', '.opencode/skills'],
+        ['gemini', 'Gemini CLI', '.gemini/skills'],
+        ['copilot', 'GitHub Copilot', '.github/skills'],
+      ].map(([id, name, relative]) => ({
+        toolId: id,
+        name,
+        directory: 'C:/demo-project/' + relative,
+        skills:
+          id === 'claude'
+            ? [
+                {
+                  id: 'project:qa-proj',
+                  name: 'qa-project-skill',
+                  description: '项目级示例 Skill',
+                  path: 'C:/demo-project/' + relative + '/qa-project-skill',
+                  toolId: id,
+                  managed: false,
+                  linked: false,
+                  warnings: [],
+                },
+              ]
+            : [],
+      })),
+      diagnostics: [],
+    }
+    handler('project-scan', () => JSON.parse(JSON.stringify(projectScan)))
+    handler('project-browse', (p) => ({
+      skill: projectScan.tools.flatMap((t) => t.skills).find((s) => s.path === p),
+      files: [{ path: 'SKILL.md', size: 30 }],
+      truncated: false,
+    }))
+    handler('project-read-file', () => '# QA 项目 Skill\n\n项目内容')
+    handler('project-write-file', () => {})
+    handler('project-delete', (p) => {
+      for (const tool of projectScan.tools) tool.skills = tool.skills.filter((s) => s.path !== p)
+      return projectScan
+    })
+    handler('project-install', (input) => {
+      for (const toolId of input.toolId === undefined ? [] : [input.toolId]) {
+        const tool = projectScan.tools.find((t) => t.toolId === toolId)
+        for (const source of input.sources) {
+          const item = library.find((s) => s.path === source)
+          if (item)
+            tool.skills.push({ ...item, path: tool.directory + '/' + item.name, warnings: [] })
+        }
+      }
+      return projectScan.tools.flatMap((t) => t.skills).map((s) => s.path)
+    })
     const window = new BrowserWindow({
       show: false,
       width: 1440,
@@ -558,6 +613,35 @@ app
     await wait("!document.querySelector('.skill-viewer')")
     if (!written['SKILL.md'] || !written['SKILL.md'].includes('QA 编辑后的内容'))
       throw new Error('Written content missing')
+    // 项目级管理：临时选择项目 → 扫描分组 → 查看 → 收录 → 从仓库安装
+    await evaluate(
+      "[...document.querySelectorAll('.nav-item')].find(b => b.textContent.includes('项目 Skill')).click()",
+    )
+    await click('选择项目文件夹')
+    await wait("document.querySelector('main').textContent.includes('qa-project-skill')")
+    await click('查看')
+    await wait("!!document.querySelector('.skill-viewer')")
+    await evaluate(
+      "document.querySelector('.skill-viewer').dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))",
+    )
+    await wait("!document.querySelector('.skill-viewer')")
+    await click('收录')
+    await click('收入仓库')
+    await wait(
+      "[...document.querySelectorAll('[data-sonner-toast]')].some(t => t.textContent.includes('已收入中央仓库'))",
+    )
+    if (!invocations.some((i) => i.name === 'library-add'))
+      throw new Error('Project collect IPC failed')
+    await click('从仓库安装')
+    await wait('!!document.querySelector(\'[aria-label="安装到 Claude Code"]\')')
+    await evaluate('document.querySelector(\'[aria-label="选择 code-review"]\').click()')
+    await evaluate('document.querySelector(\'[aria-label="安装到 Claude Code"]\').click()')
+    await click('安装到 1 个目录')
+    await wait(
+      "[...document.querySelectorAll('[data-sonner-toast]')].some(t => t.textContent.includes('已安装到项目内'))",
+    )
+    if (!invocations.some((i) => i.name === 'project-install'))
+      throw new Error('Project install IPC failed')
     // Settings page: theme radio, library location, agent scan directories
     await evaluate(
       "[...document.querySelectorAll('.nav-item')].find(b => b.textContent.includes('设置')).click()",

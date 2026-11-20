@@ -48,5 +48,13 @@ const api: Api = {
     ipcRenderer.on(IPC_CHANNELS.onUpdateStatus, listener)
     return () => ipcRenderer.removeListener(IPC_CHANNELS.onUpdateStatus, listener)
   },
+  scanProject: (projectPath) => ipcRenderer.invoke(IPC_CHANNELS.scanProject, projectPath),
+  installToProject: (input) => ipcRenderer.invoke(IPC_CHANNELS.installToProject, input),
+  projectBrowse: (absPath) => ipcRenderer.invoke(IPC_CHANNELS.projectBrowse, absPath),
+  projectReadFile: (absPath, relativePath) =>
+    ipcRenderer.invoke(IPC_CHANNELS.projectReadFile, absPath, relativePath),
+  projectWriteFile: (absPath, relativePath, content) =>
+    ipcRenderer.invoke(IPC_CHANNELS.projectWriteFile, absPath, relativePath, content),
+  projectDelete: (absPath) => ipcRenderer.invoke(IPC_CHANNELS.projectDelete, absPath),
 }
 contextBridge.exposeInMainWorld('skills', api)

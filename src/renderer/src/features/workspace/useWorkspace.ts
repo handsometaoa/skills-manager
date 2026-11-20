@@ -12,7 +12,7 @@ export function useWorkspace() {
     libraryRoot: '',
     trash: [],
   })
-  const [page, setPage] = useState<ToolId | 'library' | 'trash' | 'settings'>('library')
+  const [page, setPage] = useState<ToolId | 'library' | 'trash' | 'settings' | 'project'>('library')
   const [tab, setTab] = useState<'installed' | 'available'>('installed')
   const [ownership, setOwnership] = useState<'all' | 'own' | 'shared'>('all')
   const [query, setQuery] = useState('')
@@ -64,6 +64,7 @@ export function useWorkspace() {
   const isLibrary = page === 'library'
   const isTrash = page === 'trash'
   const isSettings = page === 'settings'
+  const isProject = page === 'project'
   const installed = !tool ? [] : data.skills.filter((s) => discoveredBy(s, tool.id))
   const own = installed.filter(
     (s) => s.path.replaceAll('\\', '/') === `${tool?.root.replaceAll('\\', '/')}/${s.name}`,
@@ -175,6 +176,7 @@ export function useWorkspace() {
     isLibrary,
     isTrash,
     isSettings,
+    isProject,
     ownership,
     setOwnership,
     own,

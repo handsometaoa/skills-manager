@@ -5,6 +5,7 @@ import { SkillStore } from './services/skill-service'
 import { SourceService } from './services/source-service'
 import { SettingsService } from './services/settings-service'
 import { UpdaterService } from './services/updater-service'
+import { ProjectService } from './services/project-service'
 import { registerHandlers } from './ipc/register-handlers'
 import { createMainWindow } from './window'
 
@@ -30,11 +31,14 @@ export function bootstrap(): void {
       const store = new SkillStore(app.getPath('userData'), os.homedir(), saved)
       await store.init()
       sources = new SourceService((root) => store.discover(root))
+      const projects = new ProjectService((path, source) =>
+        sources!.allowedSources.set(path, source),
+      )
       updater = new UpdaterService(() => {
         if (!mainWindow || mainWindow.isDestroyed()) throw new Error('应用窗口已关闭')
         return mainWindow
       })
-      registerHandlers(store, sources, settings, updater, () => {
+      registerHandlers(store, sources, settings, updater, projects, () => {
         if (!mainWindow || mainWindow.isDestroyed()) throw new Error('应用窗口已关闭')
         return mainWindow
       })

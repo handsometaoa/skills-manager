@@ -14,6 +14,7 @@ import {
 import { SkillTable } from './features/workspace/SkillTable'
 import { WorkspaceToolbar } from './features/workspace/WorkspaceToolbar'
 import { SkillViewer } from './features/skills/SkillViewer'
+import { ProjectView } from './features/project/ProjectView'
 import { ToolIcon } from './components/ui/Icons'
 import { ImportPanel } from './features/library/ImportPanel'
 import { InstallPanel } from './features/library/InstallPanel'
@@ -59,6 +60,7 @@ export function App() {
     isLibrary,
     isTrash,
     isSettings,
+    isProject,
     installed,
     items,
     chosen,
@@ -94,7 +96,15 @@ export function App() {
     }
   }, [])
 
-  const pageName = isTrash ? '回收站' : isSettings ? '设置' : isLibrary ? '中央仓库' : tool?.name
+  const pageName = isTrash
+    ? '回收站'
+    : isSettings
+      ? '设置'
+      : isProject
+        ? '项目 Skill'
+        : isLibrary
+          ? '中央仓库'
+          : tool?.name
 
   return (
     <div className="flex h-screen overflow-hidden">
@@ -160,7 +170,7 @@ export function App() {
           tabIndex={-1}
           aria-busy={busy}
         >
-          {!isTrash && !isSettings && (
+          {!isTrash && !isSettings && !isProject && (
             <section className="mb-4 flex flex-wrap items-end justify-between gap-3">
               <div className="min-w-0">
                 <h1 className="flex items-center gap-2 text-xl font-semibold tracking-tight">
@@ -231,7 +241,7 @@ export function App() {
               </div>
             </section>
           )}
-          {isLibrary && !isTrash && !isSettings && (
+          {isLibrary && !isTrash && !isSettings && !isProject && (
             <section
               className="mb-4 flex flex-wrap items-center gap-2 rounded-xl border bg-card p-4"
               aria-label="安装概览"
@@ -253,7 +263,7 @@ export function App() {
               ))}
             </section>
           )}
-          {!isLibrary && !isTrash && !isSettings && (
+          {!isLibrary && !isTrash && !isSettings && !isProject && (
             <div className="mb-4 space-y-2 rounded-xl border bg-card p-4">
               <div className="flex flex-wrap items-center gap-2 text-sm">
                 <span className="text-muted-foreground">用户目录</span>
@@ -289,6 +299,8 @@ export function App() {
             <TrashPanel workspace={workspace} />
           ) : isSettings ? (
             <SettingsView workspace={workspace} />
+          ) : isProject ? (
+            <ProjectView workspace={workspace} />
           ) : (
             <>
               <WorkspaceToolbar workspace={workspace} />

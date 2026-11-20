@@ -66,6 +66,25 @@ export interface SkillDetail {
   truncated: boolean
 }
 export type ThemeMode = 'system' | 'light' | 'dark'
+/** A tool directory inside a temporarily selected project (project-level skills). */
+export interface ProjectToolScan {
+  toolId: ToolId
+  name: string
+  /** Absolute directory scanned, e.g. `<project>/.claude/skills`. */
+  directory: string
+  skills: Skill[]
+}
+export interface ProjectScan {
+  projectPath: string
+  tools: ProjectToolScan[]
+  diagnostics: string[]
+}
+export interface ProjectInstallInput {
+  /** Absolute skill directories returned by `project-scan`. */
+  sources: string[]
+  toolId: ToolId
+  projectPath: string
+}
 /** Auto-update state surfaced to the renderer. */
 export interface UpdateStatus {
   currentVersion: string

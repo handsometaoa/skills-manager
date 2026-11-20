@@ -36,5 +36,11 @@ export const IPC_CHANNELS = {
   quitAndInstall: 'updater-quit-install',
   // Event channel: subscribe with ipcRenderer.on instead of invoke.
   onUpdateStatus: 'updater-events',
+  scanProject: 'project-scan',
+  installToProject: 'project-install',
+  projectBrowse: 'project-browse',
+  projectReadFile: 'project-read-file',
+  projectWriteFile: 'project-write-file',
+  projectDelete: 'project-delete',
 } as const satisfies Record<keyof Api, string>
 export type IpcChannel = (typeof IPC_CHANNELS)[keyof typeof IPC_CHANNELS]

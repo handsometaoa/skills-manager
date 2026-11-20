@@ -15,9 +15,10 @@ main/ipc：校验来源、参数，串行执行文件操作
         │      ├── services/skill-browser：文件浏览与编辑（路径逃逸防护）
         │      ├── services/skill-template：新建 Skill 模板渲染
         │      ├── services/settings-service：settings.json 读写与校验
+        │      ├── services/project-service：临时项目扫描与管理
         │      ├── filesystem：文件哈希
         │      ├── storage：记录类型与 JSON 原子替换
-        │      └── adapters：工具目录与启停/目录覆盖
+        │      └── adapters：工具目录、启停/目录覆盖与项目级路径矩阵
         └── services/source-service：Git 临时目录与可用来源
 ```
 
@@ -32,6 +33,7 @@ main/ipc：校验来源、参数，串行执行文件操作
 - `features/workspace/useWorkspace.ts`：工作区状态、列表派生数据和用户操作。
 - `features/workspace/`：列表、筛选与选择交互。
 - `features/library/`：入库、新建模板、适用范围和安装面板。
+- `features/project/`：临时项目扫描、收录、删除与安装到项目目录。
 - `features/settings/`：主题、仓库位置、Agent 扫描目录与启停。
 - `features/skills/`：单条 Skill 操作、文件树、Markdown/高亮源码/编辑。
 - `components/`：shadcn/ui 基础组件（Tailwind v4）、图标与面板容器。

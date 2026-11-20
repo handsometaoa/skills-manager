@@ -4,9 +4,10 @@ import { SkillStore } from '../services/skill-service'
 import { SourceService } from '../services/source-service'
 import { SettingsService, parseSettings } from '../services/settings-service'
 import { UpdaterService } from '../services/updater-service'
+import { ProjectService } from '../services/project-service'
+import { isToolId } from '../../shared/compatibility'
 import { IPC_CHANNELS } from '../../shared/ipc'
 import { createIpcRegistrar } from './registrar'
-import { isToolId } from '../../shared/compatibility'
 import type { ThemeMode } from '../../shared/types'
 
 export function registerHandlers(
@@ -14,6 +15,7 @@ export function registerHandlers(
   sources: SourceService,
   settings: SettingsService,
   updater: UpdaterService,
+  projects: ProjectService,
   getWindow: () => BrowserWindow,
 ) {
   const handle = createIpcRegistrar(getWindow)
@@ -202,6 +204,41 @@ export function registerHandlers(
       throw new Error('无效路径')
     const error = await shell.openPath(target)
     if (error) throw new Error(error)
+  })
+  handle(IPC_CHANNELS.scanProject, async (projectPath: unknown) => projects.scan(projectPath))
+  handle(IPC_CHANNELS.installToProject, async (input: unknown) => {
+    if (!input || typeof input !== 'object') throw new Error('请先选择安装来源')
+    const request = input as Record<string, unknown>
+    if (
+      !Array.isArray(request.sources) ||
+      !request.sources.length ||
+      request.sources.some((s) => typeof s !== 'string' || !sources.allowedSources.has(s))
+    )
+      throw new Error('请先选择安装来源')
+    return projects.install(input)
+  })
+  handle(IPC_CHANNELS.projectBrowse, (absPath: unknown) => projects.browse(absPath))
+  handle(IPC_CHANNELS.projectReadFile, (absPath: unknown, relativePath: unknown) =>
+    projects.readFile(absPath, relativePath),
+  )
+  handle(
+    IPC_CHANNELS.projectWriteFile,
+    (absPath: unknown, relativePath: unknown, content: unknown) =>
+      projects.writeFile(absPath, relativePath, content),
+  )
+  handle(IPC_CHANNELS.projectDelete, async (absPath: unknown) => {
+    if (typeof absPath !== 'string') throw new Error('无效 Skill')
+    const skill = await projects.browse(absPath)
+    const choice = await dialog.showMessageBox(getWindow(), {
+      type: 'warning',
+      buttons: ['取消', '移入回收站'],
+      defaultId: 0,
+      cancelId: 0,
+      message: `从项目中删除 ${skill.skill.name}？`,
+      detail: `整个目录将移入应用回收站，包含手动修改过的文件。\n\n${skill.skill.path}\n\n需要恢复时，请从回收站还原。`,
+    })
+    if (choice.response !== 1) throw new Error('已取消删除')
+    await store.deleteExternalPath(absPath)
   })
   handleDirect(IPC_CHANNELS.getSettings, () => settings.load())
   // Saving mutates the live store and can relocate the whole library, so it

@@ -2,6 +2,8 @@ import type {
   Candidate,
   Compatibility,
   CreateSkillInput,
+  ProjectInstallInput,
+  ProjectScan,
   Settings,
   SkillDetail,
   Snapshot,
@@ -46,4 +48,14 @@ export interface Api {
   quitAndInstall(): Promise<void>
   /** Subscribes to updater-state changes; returns an unsubscribe function. */
   onUpdateStatus(callback: (status: UpdateStatus) => void): () => void
+  /** Scans the Agent skill directories inside a temporarily selected project. */
+  scanProject(projectPath: string): Promise<ProjectScan>
+  /** Copies library skills into one of the project's Agent directories. */
+  installToProject(input: ProjectInstallInput): Promise<void>
+  /** Reads/writes/deletes a skill that lives inside the scanned project. */
+  projectBrowse(absPath: string): Promise<SkillDetail>
+  projectReadFile(absPath: string, relativePath: string): Promise<string>
+  projectWriteFile(absPath: string, relativePath: string, content: string): Promise<void>
+  /** Moves a project skill into the app recycle bin; restorable afterwards. */
+  projectDelete(absPath: string): Promise<void>
 }

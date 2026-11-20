@@ -139,12 +139,22 @@ export function SkillViewer({
   toolName,
   onClose,
   onSaved,
+  access,
 }: {
   detail: SkillDetail
   toolName: string
   onClose: () => void
   onSaved?: () => void
+  /** Bound file access for skills outside the store (project page). */
+  access?: {
+    read: (relativePath: string) => Promise<string>
+    write: (relativePath: string, content: string) => Promise<void>
+  }
 }) {
+  // Keep the bound access in a ref so reads/writes always use the latest
+  // binding without refetching on every render.
+  const accessRef = useRef(access)
+  accessRef.current = access
   const [file, setFile] = useState('SKILL.md')
   const [content, setContent] = useState('')
   const [loading, setLoading] = useState(true)
@@ -185,8 +195,10 @@ export function SkillViewer({
     setContent('')
     setDraft('')
     setDirty(false)
-    window.skills
-      .readFile(detail.skill.id, file)
+    const request = accessRef.current
+      ? accessRef.current.read(file)
+      : window.skills.readFile(detail.skill.id, file)
+    request
       .then((text) => {
         if (active) setContent(text)
       })
@@ -225,11 +237,14 @@ export function SkillViewer({
     if (!dirty || saving) return
     setSaving(true)
     try {
-      await window.skills.writeFile(detail.skill.id, file, draft)
+      const request = accessRef.current
+        ? accessRef.current.write(file, draft)
+        : window.skills.writeFile(detail.skill.id, file, draft)
+      await request
       setContent(draft)
       setDirty(false)
       toast.success(`已保存 ${file}`)
-      if (file === 'SKILL.md') onSaved?.()
+      if (!accessRef.current && file === 'SKILL.md') onSaved?.()
     } catch (e) {
       toast.error(cleanError(e))
     } finally {
