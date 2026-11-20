@@ -75,8 +75,7 @@ export function TrashPanel({ workspace }: { workspace: WorkspaceController }) {
                       void (async () => {
                         const ok = await confirm({
                           title: `永久删除 ${entry.skill.name}？`,
-                          description:
-                            '回收站中的这份 Skill 将被永久删除，无法还原。',
+                          description: '回收站中的这份 Skill 将被永久删除，无法还原。',
                           confirmText: '确认永久删除',
                           destructive: true,
                         })

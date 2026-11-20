@@ -165,25 +165,20 @@ export function SkillTable({ workspace }: { workspace: WorkspaceController }) {
                       : {
                           title: `${skill.managed ? '卸载' : '删除'} ${skill.name}？`,
                           description: `整个目录将移入应用回收站，${
-                            skill.managed
-                              ? '还原后恢复管理关联'
-                              : '包括手动新增或修改过的文件'
+                            skill.managed ? '还原后恢复管理关联' : '包括手动新增或修改过的文件'
                           }。\n读取此目录的工具：${affected}\n\n${skill.path}`,
                           confirmText: '确认移入回收站',
                           destructive: true,
                         },
                   )
                   if (!ok) return
-                  await run(
-                    async () => {
-                      if (skill.toolId === 'library') await window.skills.deleteLibrary(skill.id)
-                      else if (skill.managed) await window.skills.uninstall(skill.id)
-                      else await window.skills.deleteExternal(skill.id)
-                      await refresh()
-                      setSelected(selected.filter((id) => id !== skill.id))
-                    },
-                    '已移入回收站，可在左侧回收站还原。',
-                  )
+                  await run(async () => {
+                    if (skill.toolId === 'library') await window.skills.deleteLibrary(skill.id)
+                    else if (skill.managed) await window.skills.uninstall(skill.id)
+                    else await window.skills.deleteExternal(skill.id)
+                    await refresh()
+                    setSelected(selected.filter((id) => id !== skill.id))
+                  }, '已移入回收站，可在左侧回收站还原。')
                 })()
               }
             />
