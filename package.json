@@ -1,6 +1,6 @@
 {
   "name": "skills-manager",
-  "version": "2.0.4",
+  "version": "2.0.5",
   "description": "跨工具的本地 Skill 管理器",
   "main": "out/main/index.js",
   "author": "Skills Manager",
