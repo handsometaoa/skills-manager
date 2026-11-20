@@ -649,7 +649,7 @@ app
     await wait('!!document.querySelector(\'.settings-view [role="radiogroup"]\')')
     if (
       !(await evaluate(
-        "document.querySelector('.settings-view').textContent.includes('中央仓库位置') && document.querySelector('.settings-view').textContent.includes('Agent 扫描目录') && document.querySelector('.settings-view').textContent.includes('默认位置') && document.querySelector('.settings-view').textContent.includes('当前版本 v2.0.0')",
+        "document.querySelector('.settings-view').textContent.includes('中央仓库位置') && document.querySelector('.settings-view').textContent.includes('Agent 扫描目录') && document.querySelector('.settings-view').textContent.includes('默认位置') && document.querySelector('.settings-view').textContent.includes('关于与更新') && document.querySelector('.settings-view').textContent.includes('v2.0.0')",
       ))
     )
       throw new Error('Settings sections missing')
@@ -658,7 +658,7 @@ app
     const BG_LIGHT = 'oklch(1 0 0)'
     const BG_DARK = 'oklch(0.141 0.005 285.823)'
     await evaluate(
-      "[...document.querySelectorAll('.settings-view label')].find(l => l.textContent.includes('明亮模式')).click()",
+      "[...document.querySelectorAll('.settings-view label')].find(l => l.textContent.includes('明亮')).click()",
     )
     await wait(`getComputedStyle(document.body).backgroundColor === '${BG_LIGHT}'`)
     await screenshot('settings-light')
@@ -673,7 +673,7 @@ app
     )
     await wait('!!document.querySelector(\'.settings-view [role="radiogroup"]\')')
     await evaluate(
-      "[...document.querySelectorAll('.settings-view label')].find(l => l.textContent.includes('黑暗模式')).click()",
+      "[...document.querySelectorAll('.settings-view label')].find(l => l.textContent.includes('黑暗')).click()",
     )
     await wait(`getComputedStyle(document.body).backgroundColor === '${BG_DARK}'`)
     await screenshot('settings-dark')

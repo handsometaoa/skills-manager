@@ -500,7 +500,9 @@ export class SkillStore {
         linked: false,
       }
     } catch (e) {
-      throw new Error(`仅支持删除包含合法 SKILL.md 的目录：${(e as Error).message}`)
+      throw new Error(`仅支持删除包含合法 SKILL.md 的目录：${(e as Error).message}`, {
+        cause: e,
+      })
     }
     if ((await fs.lstat(resolved)).isSymbolicLink())
       throw new Error('暂不删除链接目录，请在文件管理器中处理链接')

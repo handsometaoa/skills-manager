@@ -24,7 +24,7 @@ import type {
 import { TOOL_IDS } from '../../../../shared/types'
 import { cleanError } from '../../lib/errors'
 import { Button } from '../../components/ui/button'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../../components/ui/card'
+import { Card } from '../../components/ui/card'
 import { Input } from '../../components/ui/input'
 import { Label } from '../../components/ui/label'
 import { Badge } from '../../components/ui/badge'
@@ -52,6 +52,16 @@ const emptyDrafts = (): ToolDrafts => {
   const drafts = {} as ToolDrafts
   for (const id of TOOL_IDS) drafts[id] = { root: '', extraRoots: [] }
   return drafts
+}
+
+const UPDATE_TEXT: Record<UpdateStatus['state'], (status: UpdateStatus) => string> = {
+  idle: () => '尚未检查更新',
+  checking: () => '正在检查更新…',
+  'not-available': () => '已是最新版本',
+  available: (s) => `发现新版本 v${s.availableVersion}`,
+  downloading: (s) => `正在下载更新 ${s.progress ?? 0}%`,
+  downloaded: (s) => `v${s.availableVersion} 已就绪，重启后安装`,
+  error: (s) => `更新失败：${s.error ?? '请稍后重试'}`,
 }
 
 export function SettingsView({ workspace }: { workspace: WorkspaceController }) {
@@ -180,84 +190,80 @@ export function SettingsView({ workspace }: { workspace: WorkspaceController }) 
 
   if (!settings)
     return (
-      <div className="max-w-3xl space-y-4">
-        <Skeleton className="h-40 w-full rounded-xl" />
-        <Skeleton className="h-56 w-full rounded-xl" />
-        <Skeleton className="h-64 w-full rounded-xl" />
+      <div className="settings-view mx-auto max-w-3xl">
+        <Skeleton className="h-10 w-full rounded-lg" />
+        <Skeleton className="mt-3 h-10 w-full rounded-lg" />
+        <Skeleton className="mt-3 h-64 w-full rounded-lg" />
       </div>
     )
 
   const defaultRoot = !settings.libraryRoot
   return (
-    <div className="settings-view max-w-3xl space-y-4">
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">外观</CardTitle>
-        </CardHeader>
-        <CardContent>
+    <div className="settings-view mx-auto max-w-3xl">
+      <Card className="gap-0 divide-y overflow-hidden py-0">
+        <div className="flex flex-wrap items-center justify-between gap-2 px-6 py-3">
+          <span className="text-sm font-medium">外观</span>
           <RadioGroup
-            className="grid grid-cols-3 gap-3"
+            className="flex flex-wrap gap-1.5"
             value={settings.theme}
             onValueChange={changeTheme}
           >
             {(
               [
                 ['system', Monitor, '跟随系统'],
-                ['light', Sun, '明亮模式'],
-                ['dark', Moon, '黑暗模式'],
+                ['light', Sun, '明亮'],
+                ['dark', Moon, '黑暗'],
               ] as const
             ).map(([value, Icon, label]) => (
               <Label
                 key={value}
-                className="hover:bg-accent/60 flex cursor-pointer flex-col items-start gap-2 rounded-lg border p-3 font-normal"
+                className={cn(
+                  'flex cursor-pointer items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-xs font-normal transition-colors',
+                  settings.theme === value
+                    ? 'border-primary/40 bg-primary/5 text-foreground'
+                    : 'text-muted-foreground hover:bg-accent/60',
+                )}
               >
-                <div className="flex w-full items-center justify-between">
-                  <Icon className="text-muted-foreground size-4" />
-                  <RadioGroupItem value={value} />
-                </div>
-                <span className="text-sm">{label}</span>
+                <Icon className="size-3.5" />
+                {label}
+                <RadioGroupItem value={value} className="sr-only" />
               </Label>
             ))}
           </RadioGroup>
-        </CardContent>
-      </Card>
+        </div>
 
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">中央仓库位置</CardTitle>
-          <CardDescription>更改位置时自动迁移现有内容，目标须为空文件夹。</CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-3">
-          <div className="flex flex-wrap items-center gap-2">
-            <code className="bg-muted min-w-0 flex-1 truncate rounded-md px-2.5 py-1.5 text-xs">
-              {workspace.data.libraryRoot || '…'}
-            </code>
-            {defaultRoot ? <Badge variant="secondary">默认位置</Badge> : <Badge>自定义</Badge>}
-          </div>
-          <div className="flex items-center gap-2">
-            <Button variant="outline" disabled={busy} onClick={() => void browse()}>
-              <FolderOpen />
-              更改位置…
+        <div className="flex flex-wrap items-center gap-2 px-6 py-3">
+          <span className="text-sm font-medium">中央仓库位置</span>
+          <code className="bg-muted min-w-0 flex-1 truncate rounded px-2 py-1 text-xs">
+            {workspace.data.libraryRoot || '…'}
+          </code>
+          {defaultRoot ? <Badge variant="secondary">默认位置</Badge> : <Badge>自定义</Badge>}
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={busy}
+            title="更改位置时自动迁移现有内容，目标须为空文件夹"
+            onClick={() => void browse()}
+          >
+            <FolderOpen className="size-3.5" />
+            更改…
+          </Button>
+          {!defaultRoot && (
+            <Button variant="ghost" size="sm" disabled={busy} onClick={() => setPendingRoot('')}>
+              <RotateCcw className="size-3.5" />
+              恢复默认
             </Button>
-            {!defaultRoot && (
-              <Button variant="ghost" disabled={busy} onClick={() => setPendingRoot('')}>
-                <RotateCcw />
-                恢复默认
-              </Button>
-            )}
-          </div>
-        </CardContent>
-      </Card>
+          )}
+        </div>
 
-      <Card className="gap-0 py-0">
-        <CardHeader className="px-6 pt-6 pb-4">
-          <CardTitle className="text-base">Agent 扫描目录</CardTitle>
-          <CardDescription>
-            覆盖默认技能目录（同时是安装目标），或添加附加发现目录。
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="p-0">
-          <div className="divide-y">
+        <div>
+          <div className="flex items-center justify-between gap-2 px-6 py-3">
+            <span className="text-sm font-medium">Agent 扫描目录</span>
+            <Button variant="outline" size="sm" disabled={busy} onClick={() => void saveTools()}>
+              保存扫描目录
+            </Button>
+          </div>
+          <div className="divide-y border-t">
             {TOOL_IDS.map((id) => {
               const tool = workspace.data.tools.find((t) => t.id === id)
               const draft = drafts[id]
@@ -269,12 +275,12 @@ export function SettingsView({ workspace }: { workspace: WorkspaceController }) 
                 <div key={id}>
                   <div
                     className={cn(
-                      'flex w-full items-center gap-2.5 px-6 py-2.5 transition-colors',
+                      'flex w-full items-center gap-2.5 px-6 py-2 transition-colors',
                       !enabled && 'opacity-55',
                     )}
                   >
                     <button
-                      className="hover:bg-accent/60 -mx-2 flex min-w-0 flex-1 items-center gap-2.5 rounded-md px-2 py-1.5 text-left transition-colors"
+                      className="hover:bg-accent/60 -mx-2 flex min-w-0 flex-1 items-center gap-2.5 rounded-md px-2 py-1 text-left transition-colors"
                       aria-expanded={open}
                       onClick={() =>
                         setExpandedTools((current) => {
@@ -307,7 +313,7 @@ export function SettingsView({ workspace }: { workspace: WorkspaceController }) 
                     />
                   </div>
                   {open && (
-                    <div className="space-y-2 px-6 pb-4">
+                    <div className="space-y-2 px-6 pb-3">
                       <div className="flex items-center gap-2">
                         <Input
                           aria-label={`${name} 主扫描目录`}
@@ -389,89 +395,52 @@ export function SettingsView({ workspace }: { workspace: WorkspaceController }) 
               )
             })}
           </div>
-          <div className="flex items-center justify-end border-t px-6 py-4">
-            <Button disabled={busy} onClick={() => void saveTools()}>
-              保存扫描目录
-            </Button>
-          </div>
-        </CardContent>
-      </Card>
+          <p className="text-muted-foreground px-6 py-2 text-xs">
+            覆盖默认目录（同时是安装目标），附加目录仅用于发现；共享关系自动跟随。
+          </p>
+        </div>
 
-      {update && (
-        <Card>
-          <CardHeader className="px-6 pt-6 pb-4">
-            <CardTitle className="text-base">关于与更新</CardTitle>
-            <CardDescription>当前版本 v{update.currentVersion}</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-3 px-6 pb-6">
+        {update && (
+          <div className="flex flex-wrap items-center gap-2 px-6 py-3">
+            <span className="text-sm font-medium">关于与更新</span>
             {update.updateSupported ? (
               <>
-                <div className="flex items-center justify-between gap-3">
-                  <span className="text-sm">
-                    {update.state === 'checking' && '正在检查更新…'}
-                    {update.state === 'not-available' && '已是最新版本'}
-                    {update.state === 'available' && (
-                      <span>
-                        发现新版本 <strong>v{update.availableVersion}</strong>
-                      </span>
-                    )}
-                    {update.state === 'downloading' && (
-                      <span>
-                        正在下载更新
-                        {update.progress !== undefined && ` · ${update.progress}%`}
-                      </span>
-                    )}
-                    {update.state === 'downloaded' && (
-                      <span>v{update.availableVersion} 已就绪，重启后安装</span>
-                    )}
-                    {update.state === 'error' && (
-                      <span className="text-destructive">
-                        更新失败：{update.error ?? '请稍后重试'}
-                      </span>
-                    )}
-                    {update.state === 'idle' && '尚未检查更新'}
-                  </span>
-                  {update.state === 'available' && (
-                    <Button disabled={busy} onClick={() => void downloadUpdateNow()}>
-                      <Download />
-                      下载更新
-                    </Button>
-                  )}
-                  {update.state === 'downloaded' && (
-                    <Button onClick={() => void window.skills.quitAndInstall()}>
-                      <RotateCcw />
-                      重启并安装
-                    </Button>
-                  )}
-                  {(update.state === 'idle' ||
-                    update.state === 'not-available' ||
-                    update.state === 'error') && (
-                    <Button variant="outline" disabled={busy} onClick={() => void checkUpdate()}>
-                      <RefreshCw />
-                      检查更新
-                    </Button>
-                  )}
-                </div>
-                {update.state === 'downloading' && (
-                  <div className="bg-muted h-1.5 overflow-hidden rounded-full">
-                    <div
-                      className="bg-primary h-full rounded-full transition-[width]"
-                      style={{ width: `${update.progress ?? 0}%` }}
-                    />
-                  </div>
+                <Badge variant="secondary">v{update.currentVersion}</Badge>
+                <span className="text-muted-foreground min-w-0 flex-1 truncate text-xs">
+                  {UPDATE_TEXT[update.state](update)}
+                </span>
+                {update.state === 'available' && (
+                  <Button size="sm" disabled={busy} onClick={() => void downloadUpdateNow()}>
+                    <Download className="size-3.5" />
+                    下载
+                  </Button>
                 )}
                 {update.state === 'downloaded' && (
-                  <p className="text-muted-foreground text-xs">
-                    更新包已校验完成，重启应用即自动安装并重新启动。
-                  </p>
+                  <Button size="sm" onClick={() => void window.skills.quitAndInstall()}>
+                    <RotateCcw className="size-3.5" />
+                    重启安装
+                  </Button>
+                )}
+                {(update.state === 'idle' ||
+                  update.state === 'not-available' ||
+                  update.state === 'error') && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={busy}
+                    onClick={() => void checkUpdate()}
+                  >
+                    <RefreshCw className="size-3.5" />
+                    检查更新
+                  </Button>
                 )}
               </>
             ) : (
-              <p className="text-muted-foreground text-xs">开发模式下自动更新不可用。</p>
+              <span className="text-muted-foreground text-xs">开发模式下自动更新不可用</span>
             )}
-          </CardContent>
-        </Card>
-      )}
+          </div>
+        )}
+      </Card>
 
       <AlertDialog
         open={pendingRoot !== null}
