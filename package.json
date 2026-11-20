@@ -94,6 +94,13 @@
       "owner": "handsometaoa",
       "repo": "skills-manager"
     },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "artifactName": "Skills-Manager-Setup-${version}.${ext}",
+      "installerHeader": "build/installerHeader.bmp",
+      "installerSidebar": "build/installerSidebar.bmp"
+    },
     "win": {
       "target": [
         "nsis"
@@ -111,11 +118,8 @@
       ],
       "category": "public.app-category.developer-tools"
     },
-    "nsis": {
-      "oneClick": false,
-      "allowToChangeInstallationDirectory": true,
-      "installerHeader": "build/installerHeader.bmp",
-      "installerSidebar": "build/installerSidebar.bmp"
+    "dmg": {
+      "artifactName": "Skills-Manager-${version}-${arch}.${ext}"
     }
   }
 }
