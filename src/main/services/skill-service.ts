@@ -154,15 +154,15 @@ export class SkillStore {
     try {
       for (const source of sources) {
         const candidate = await this.inspect(source.path)
+        // The library keys skills by name alone: adjust an existing entry's
+        // scope instead of keeping two copies under the same name.
         if (
-          this.library.some(
-            (e) =>
-              e.name.toLowerCase() === candidate.name.toLowerCase() &&
-              compatibilityKey(e.compatibility) === compatibilityKey(compatibility),
-          ) ||
-          added.some((e) => e.name === candidate.name)
+          this.library.some((e) => e.name.toLowerCase() === candidate.name.toLowerCase()) ||
+          added.some((e) => e.name.toLowerCase() === candidate.name.toLowerCase())
         )
-          throw new Error(`仓库中已有同名、同适用范围的 Skill：${candidate.name}`)
+          throw new Error(
+            `仓库中已有同名 Skill：${candidate.name}。如需调整适用范围，请直接修改该条目`,
+          )
         if ((await fs.lstat(source.path)).isSymbolicLink())
           throw new Error('请导入 Skill 的真实目录')
         await this.hashes(source.path)
@@ -202,14 +202,8 @@ export class SkillStore {
     const content = renderSkillTemplate(name, description)
     if (input.target === 'library') {
       const compatibility = normalizeCompatibility(input.compatibility ?? 'all')
-      if (
-        this.library.some(
-          (e) =>
-            e.name.toLowerCase() === name.toLowerCase() &&
-            compatibilityKey(e.compatibility) === compatibilityKey(compatibility),
-        )
-      )
-        throw new Error(`仓库中已有同名、同适用范围的 Skill：${name}`)
+      if (this.library.some((e) => e.name.toLowerCase() === name.toLowerCase()))
+        throw new Error(`仓库中已有同名 Skill：${name}。如需调整适用范围，请直接修改该条目`)
       const entry: LibraryEntry = {
         id: randomUUID(),
         name,
@@ -562,13 +556,9 @@ export class SkillStore {
     if (!entry) throw new Error('回收站项目已不存在')
     if (
       entry.library &&
-      this.library.some(
-        (item) =>
-          item.name.toLowerCase() === entry.library!.name.toLowerCase() &&
-          compatibilityKey(item.compatibility) === compatibilityKey(entry.library!.compatibility),
-      )
+      this.library.some((item) => item.name.toLowerCase() === entry.library!.name.toLowerCase())
     )
-      throw new Error('仓库已有同名、同适用范围的 Skill，无法还原')
+      throw new Error('仓库已有同名 Skill，无法还原。请先重命名或移出仓库中的同名条目')
     try {
       await fs.lstat(entry.originalPath)
       throw new Error('原位置已有同名目录，无法还原，请先处理冲突')

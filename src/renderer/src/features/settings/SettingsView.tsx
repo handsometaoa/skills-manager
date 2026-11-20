@@ -157,9 +157,14 @@ export function SettingsView({ workspace }: { workspace: WorkspaceController }) 
       for (const id of TOOL_IDS) {
         const root = drafts[id].root.trim()
         const extraRoots = drafts[id].extraRoots.map((r) => r.trim()).filter(Boolean)
-        const value: ToolScanSettings = {}
+        const value: ToolScanSettings = { ...settings.tools[id] }
+        // Carry the enabled flag over: a disabled agent must stay disabled
+        // after saving scan directories.
+        if (settings.tools[id]?.enabled === false) value.enabled = false
         if (root) value.root = root
+        else delete value.root
         if (extraRoots.length) value.extraRoots = extraRoots
+        else delete value.extraRoots
         if (Object.keys(value).length) tools[id] = value
       }
       const next = await window.skills.saveSettings({ ...settings, tools })

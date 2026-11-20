@@ -31,13 +31,18 @@ test('created library template becomes a managed skill with parseable metadata',
     assert.equal(inspected.metadataName, 'code-review')
     assert.ok(inspected.description.includes('第二行描述也必须可解析'))
     await f.store.readFile(library[0].id, 'SKILL.md')
-    // Same name with a different scope is allowed; same scope is rejected.
-    await f.store.createSkill({
-      name: 'code-review',
-      description: '另一个适用范围的同名模板',
-      target: 'library',
-      compatibility: ['zcode'],
-    })
+    // The library keys skills by name alone: any same-name addition is rejected,
+    // whatever the requested scope. Adjust the existing entry's scope instead.
+    await assert.rejects(
+      () =>
+        f.store.createSkill({
+          name: 'code-review',
+          description: '重复',
+          target: 'library',
+          compatibility: ['zcode'],
+        }),
+      /已有同名 Skill/,
+    )
     await assert.rejects(
       () =>
         f.store.createSkill({
@@ -46,9 +51,9 @@ test('created library template becomes a managed skill with parseable metadata',
           target: 'library',
           compatibility: ['claude'],
         }),
-      /同名、同适用范围/,
+      /已有同名 Skill/,
     )
-    assert.equal((await f.store.scan()).library.length, 2)
+    assert.equal((await f.store.scan()).library.length, 1)
   } finally {
     await f.cleanup()
   }
