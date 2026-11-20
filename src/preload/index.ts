@@ -6,6 +6,7 @@ const api: Api = {
   createSkill: (input) => ipcRenderer.invoke(IPC_CHANNELS.createSkill, input),
   addToLibrary: (paths, compatibility) =>
     ipcRenderer.invoke(IPC_CHANNELS.addToLibrary, paths, compatibility),
+  deployUpdate: (id) => ipcRenderer.invoke(IPC_CHANNELS.deployUpdate, id),
   collectSkill: (id, compatibility) =>
     ipcRenderer.invoke(IPC_CHANNELS.collectSkill, id, compatibility),
   setCompatibility: (id, compatibility) =>

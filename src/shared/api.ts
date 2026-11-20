@@ -1,5 +1,6 @@
 import type {
   Candidate,
+  DeployResult,
   Compatibility,
   CreateSkillInput,
   ProjectInstallInput,
@@ -15,6 +16,8 @@ import type {
 export interface Api {
   createSkill(input: CreateSkillInput): Promise<Candidate>
   addToLibrary(paths: string[], compatibility: Compatibility): Promise<void>
+  /** Copies the current library content of a skill to every tool it was installed into. */
+  deployUpdate(id: string): Promise<DeployResult>
   collectSkill(id: string, compatibility: Compatibility): Promise<void>
   setCompatibility(id: string, compatibility: Compatibility): Promise<void>
   installLibrary(ids: string[], toolIds: ToolId[]): Promise<void>

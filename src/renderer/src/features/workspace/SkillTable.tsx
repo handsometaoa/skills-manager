@@ -18,6 +18,7 @@ export function SkillTable({ workspace }: { workspace: WorkspaceController }) {
     setDirect,
     selected,
     setSelected,
+    setMessage,
     refresh,
     run,
     navigate,
@@ -111,7 +112,20 @@ export function SkillTable({ workspace }: { workspace: WorkspaceController }) {
                 setDirect(skill)
                 setInstalling([skill])
               }}
-              compatibility={(value) =>
+              deploy={() =>
+              void run(
+                async () => {
+                  const result = await window.skills.deployUpdate(skill.id)
+                  await refresh()
+                  setMessage({
+                    text: `已下发更新：${result.updated.length} 个工具${
+                      result.skipped.length ? `（跳过 ${result.skipped.length} 个）` : ''
+                    }`,
+                  })
+                },
+              )
+            }
+            compatibility={(value) =>
                 void run(async () => {
                   await window.skills.setCompatibility(skill.id, value)
                   await refresh()

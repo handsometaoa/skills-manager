@@ -73,6 +73,27 @@ export function registerHandlers(
       compatibility,
     )
   })
+  handle(IPC_CHANNELS.deployUpdate, async (id: unknown) => {
+    if (typeof id !== 'string') throw new Error('无效 Skill')
+    const snapshot = await store.scan()
+    const skill = snapshot.library.find((s) => s.id === id)
+    if (!skill) throw new Error('未找到仓库 Skill')
+    const affected = snapshot.skills.filter((s) => s.libraryId === id)
+    if (!affected.length) throw new Error('该 Skill 尚未安装到任何工具，请先从仓库安装')
+    const toolNames = affected
+      .map((s) => snapshot.tools.find((t) => t.id === s.toolId)?.name ?? s.toolId)
+      .join('、')
+    const choice = await dialog.showMessageBox(getWindow(), {
+      type: 'question',
+      buttons: ['取消', '下发更新'],
+      defaultId: 0,
+      cancelId: 0,
+      message: `下发更新：${skill.name}？`,
+      detail: `仓库当前版本将复制到所有安装过此 Skill 的工具目录（${toolNames}），覆盖这些副本中的本地修改。\n\n内容已同步的副本会自动跳过。`,
+    })
+    if (choice.response !== 1) throw new Error('已取消下发')
+    return store.deployUpdate(id)
+  })
   handle(IPC_CHANNELS.collectSkill, async (id: unknown, compatibility: unknown) => {
     if (typeof id !== 'string') throw new Error('无效 Skill')
     assertCompatibility(compatibility)

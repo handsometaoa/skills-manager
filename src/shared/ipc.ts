@@ -3,6 +3,7 @@ import type { Api } from './api'
 export const IPC_CHANNELS = {
   createSkill: 'skill-create',
   addToLibrary: 'library-add',
+  deployUpdate: 'library-deploy',
   collectSkill: 'library-collect',
   setCompatibility: 'library-compatibility',
   installLibrary: 'library-install',

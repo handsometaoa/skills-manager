@@ -152,6 +152,7 @@ app
         warnings: [],
       },
     ])
+    handler('library-deploy', () => ({ updated: ['claude'], skipped: [] }))
     handler('library-add', (_paths, compatibility) =>
       library.push({ ...library[0], id: 'imported', name: 'local-skill', compatibility }),
     )
@@ -642,6 +643,18 @@ app
     )
     if (!invocations.some((i) => i.name === 'project-install'))
       throw new Error('Project install IPC failed')
+    // 一键下发更新：仓库当前版本覆盖已安装副本
+    await evaluate(
+      "[...document.querySelectorAll('.nav-item')].find(b => b.textContent.includes('中央仓库')).click()",
+    )
+    await wait("document.querySelectorAll('.skill-row').length >= 1")
+    await openRowMenu()
+    await click('下发更新到工具')
+    await wait(
+      "[...document.querySelectorAll('[data-sonner-toast]')].some(t => t.textContent.includes('已下发更新'))",
+    )
+    if (!invocations.some((i) => i.name === 'library-deploy'))
+      throw new Error('Deploy IPC failed')
     // Settings page: theme radio, library location, agent scan directories
     await evaluate(
       "[...document.querySelectorAll('.nav-item')].find(b => b.textContent.includes('设置')).click()",

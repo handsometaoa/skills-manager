@@ -85,6 +85,12 @@ export interface ProjectInstallInput {
   toolId: ToolId
   projectPath: string
 }
+export interface DeployResult {
+  /** Tools whose installed copy was refreshed from the library. */
+  updated: ToolId[]
+  /** Tools skipped during deployment, with the reason. */
+  skipped: { toolId: ToolId; reason: string }[]
+}
 /** Auto-update state surfaced to the renderer. */
 export interface UpdateStatus {
   currentVersion: string

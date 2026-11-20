@@ -7,6 +7,7 @@ import {
   Download,
   Ellipsis,
   FolderOpen,
+  RefreshCw,
   Trash2,
   TriangleAlert,
 } from 'lucide-react'
@@ -45,6 +46,8 @@ interface Props {
   remove: () => void
   copy: () => void
   compatibility: (value: Compatibility) => void
+  /** Deploys the current library content to every linked installation. */
+  deploy: () => void
 }
 export function SkillRow({
   grid,
@@ -66,6 +69,7 @@ export function SkillRow({
   remove,
   copy,
   compatibility,
+  deploy,
 }: Props) {
   const central = skill.toolId === 'library'
   const conflict = available && !selectable
@@ -268,6 +272,12 @@ export function SkillRow({
               <DropdownMenuItem disabled={busy || skill.linked} onClick={copy}>
                 <Copy />
                 复制到其他工具
+              </DropdownMenuItem>
+            )}
+            {central && installed.some((i) => i.libraryId === skill.id) && (
+              <DropdownMenuItem onClick={deploy}>
+                <RefreshCw />
+                下发更新到工具
               </DropdownMenuItem>
             )}
             <DropdownMenuSeparator />

@@ -13,6 +13,7 @@ import type {
   Candidate,
   Compatibility,
   CreateSkillInput,
+  DeployResult,
   Settings,
   Skill,
   SkillDetail,
@@ -381,19 +382,7 @@ export class SkillStore {
       ids.some((id) => !this.tools.some((t) => t.id === id))
     )
       throw new Error('请选择有效的目标工具')
-    if (ids.includes('zcode') && candidate.description.length > 1024)
-      throw new Error('ZCode 描述不能超过 1024 字符')
-    if (ids.includes('opencode')) {
-      if (
-        candidate.name.length > 64 ||
-        !/^[a-z0-9]+(-[a-z0-9]+)*$/.test(candidate.name) ||
-        candidate.metadataName !== candidate.name
-      )
-        throw new Error(
-          'OpenCode 要求目录名与 name 一致，且为不超过 64 字符的小写字母、数字及单短横线',
-        )
-      if (candidate.description.length > 1024) throw new Error('OpenCode 描述不能超过 1024 字符')
-    }
+    this.assertToolFormat(candidate, ids)
     const existing = (await this.scan()).skills
     for (const id of ids) {
       const conflict = existing.find(
@@ -450,6 +439,92 @@ export class SkillStore {
     } finally {
       for (const stage of stages) await fs.rm(stage, { recursive: true, force: true })
     }
+  }
+  /** Per-tool content rules (ZCode/OpenCode) shared by install and update deployment. */
+  private assertToolFormat(candidate: Candidate, ids: ToolId[]) {
+    if (ids.includes('zcode') && candidate.description.length > 1024)
+      throw new Error('ZCode 描述不能超过 1024 字符')
+    if (ids.includes('opencode')) {
+      if (
+        candidate.name.length > 64 ||
+        !/^[a-z0-9]+(-[a-z0-9]+)*$/.test(candidate.name) ||
+        candidate.metadataName !== candidate.name
+      )
+        throw new Error(
+          'OpenCode 要求目录名与 name 一致，且为不超过 64 字符的小写字母、数字及单短横线',
+        )
+      if (candidate.description.length > 1024) throw new Error('OpenCode 描述不能超过 1024 字符')
+    }
+  }
+  /**
+   * One-click redeployment: copies the current library content of a skill to
+   * every tool directory it was installed into, overwriting local changes.
+   * Targets whose content already matches are skipped; a mid-batch failure
+   * restores the previous copies.
+   */
+  async deployUpdate(id: string): Promise<DeployResult> {
+    const entry = this.library.find((e) => e.id === id)
+    if (!entry) throw new Error('仓库 Skill 已不存在，请刷新列表')
+    const source = this.libraryPath(entry)
+    const sourceHashes = await this.hashes(source)
+    const candidate = await this.inspect(source)
+    const linked = this.records.filter((r) => r.libraryId === id)
+    if (!linked.length) throw new Error('该 Skill 尚未安装到任何工具，请先从仓库安装')
+    this.assertToolFormat(candidate, linked.map((r) => r.toolId))
+
+    const previousHashes = linked.map((r) => r.hashes)
+    const updated: ToolId[] = []
+    const skipped: DeployResult['skipped'] = []
+    const backups: { from: string; to: string }[] = []
+    const created: string[] = []
+    try {
+      for (const record of linked) {
+        let exists = true
+        try {
+          exists = (await fs.lstat(record.path)).isDirectory()
+        } catch {
+          exists = false
+        }
+        if (!exists) {
+          skipped.push({ toolId: record.toolId, reason: '目标目录已不存在，请先清理该安装记录' })
+          continue
+        }
+        let targetHashes: Record<string, string> | null = null
+        try {
+          targetHashes = await this.hashes(record.path)
+        } catch {
+          targetHashes = null
+        }
+        if (targetHashes && JSON.stringify(targetHashes) === JSON.stringify(sourceHashes)) {
+          skipped.push({ toolId: record.toolId, reason: '内容已是最新' })
+          continue
+        }
+        const stage = path.join(path.dirname(record.path), `.deploy-${randomUUID()}`)
+        await fs.cp(source, stage, { recursive: true, dereference: false })
+        const backup = path.join(path.dirname(record.path), `.deploy-backup-${randomUUID()}`)
+        await fs.rename(record.path, backup)
+        backups.push({ from: record.path, to: backup })
+        await fs.rename(stage, record.path)
+        created.push(record.path)
+        record.hashes = await this.hashes(record.path)
+        updated.push(record.toolId)
+      }
+      await this.save()
+    } catch (e) {
+      linked.forEach((record, index) => {
+        record.hashes = previousHashes[index]
+      })
+      for (const backup of backups) {
+        await fs.rm(backup.from, { recursive: true, force: true }).catch(() => {})
+        await fs.rename(backup.to, backup.from).catch(() => {})
+      }
+      for (const createdPath of created)
+        await fs.rm(createdPath, { recursive: true, force: true }).catch(() => {})
+      throw e
+    }
+    for (const backup of backups)
+      await fs.rm(backup.to, { recursive: true, force: true }).catch(() => {})
+    return { updated, skipped }
   }
   private async findSkill(id: string) {
     const snapshot = await this.scan()
