@@ -123,13 +123,11 @@
           ]
         }
       ],
-      "category": "public.app-category.developer-tools"
+      "category": "public.app-category.developer-tools",
+      "artifactName": "Skills-Manager-${version}-${arch}-mac.${ext}"
     },
     "dmg": {
       "artifactName": "Skills-Manager-${version}-${arch}.${ext}"
-    },
-    "zip": {
-      "artifactName": "Skills-Manager-${version}-${arch}-mac.${ext}"
     }
   }
 }
