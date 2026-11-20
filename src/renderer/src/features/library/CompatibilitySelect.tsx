@@ -28,7 +28,11 @@ export function CompatibilitySelect({
         <Checkbox
           checked={value === 'all'}
           aria-label="通用 · 所有工具"
-          onCheckedChange={(checked) => onChange(checked ? 'all' : [tools[0].id])}
+          // With every agent disabled there is nothing to fall back to, so the
+          // checkbox stays on 通用 instead of producing an invalid selection.
+          onCheckedChange={(checked) =>
+            onChange(checked ? 'all' : tools[0] ? [tools[0].id] : 'all')
+          }
         />
         <span>通用 · 所有工具</span>
       </Label>

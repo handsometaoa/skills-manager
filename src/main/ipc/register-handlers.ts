@@ -1,4 +1,4 @@
-import { assertCompatibility, assertToolIds } from './validation'
+import { assertCompatibility, assertProjectSources, assertToolIds } from './validation'
 import { dialog, ipcMain, nativeTheme, shell, type BrowserWindow } from 'electron'
 import { SkillStore } from '../services/skill-service'
 import { SourceService } from '../services/source-service'
@@ -175,13 +175,13 @@ export function registerHandlers(
   handle(IPC_CHANNELS.installToProject, async (input: unknown) => {
     if (!input || typeof input !== 'object') throw new Error('请先选择安装来源')
     const request = input as Record<string, unknown>
-    if (
-      !Array.isArray(request.sources) ||
-      !request.sources.length ||
-      request.sources.some((s) => typeof s !== 'string' || !sources.allowedSources.has(s))
+    const { sources: projectSources } = request
+    // Library skills are app-managed content that never passes through
+    // allowedSources, so registered library paths are valid install sources too.
+    assertProjectSources(
+      projectSources,
+      (s) => sources.allowedSources.has(s) || store.findLibraryIdByPath(s) !== undefined,
     )
-      throw new Error('请先选择安装来源')
-    const projectSources = request.sources as string[]
     const created = (await projects.install(input)) as string[]
     const toolId = request.toolId as ToolId
     // Track project installs so they can be updated from the library and

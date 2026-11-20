@@ -448,6 +448,10 @@ export function SkillViewer({
             <AlertDialogAction
               onClick={() => {
                 setDirty(false)
+                // Drop the discarded edits immediately; a file switch reloads
+                // and re-syncs the draft, but a same-file mode switch would
+                // otherwise keep them around and let them be saved later.
+                setDraft(content)
                 if (pending?.type === 'close') onClose()
                 else if (pending?.type === 'file') {
                   if (pending.file !== file) setFile(pending.file)

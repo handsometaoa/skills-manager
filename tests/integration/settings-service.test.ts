@@ -49,6 +49,29 @@ test('settings load defaults, round-trip and reject invalid input', async () => 
   }
 })
 
+test('a corrupted settings file falls back to defaults but keeps a recovery backup', async () => {
+  const f = await fixture()
+  try {
+    const file = path.join(f.root, 'settings-only', 'settings.json')
+    const corrupted = '{ "theme": "dark" ' // truncated JSON
+    await fs.mkdir(path.dirname(file), { recursive: true })
+    await fs.writeFile(file, corrupted)
+    const service = new SettingsService(file)
+    assert.deepEqual(await service.load(), DEFAULT_SETTINGS)
+    // The unreadable file is preserved for manual recovery; repeated loads
+    // rewrite the same fixed backup instead of littering the directory.
+    assert.equal(await fs.readFile(`${file}.invalid.bak`, 'utf8'), corrupted)
+    assert.deepEqual(await service.load(), DEFAULT_SETTINGS)
+    // Exactly one backup exists next to the original file.
+    assert.deepEqual((await fs.readdir(path.dirname(file))).sort(), [
+      'settings.json',
+      'settings.json.invalid.bak',
+    ])
+  } finally {
+    await f.cleanup()
+  }
+})
+
 test('applySettings updates the live store so enable/disable takes effect at once', async () => {
   const f = await fixture()
   try {

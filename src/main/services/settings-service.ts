@@ -84,7 +84,14 @@ export class SettingsService {
       return parseSettings(JSON.parse(await fs.readFile(this.file, 'utf8')))
     } catch {
       // A missing file is the first run; a corrupted one must not brick the
-      // app on startup, so both fall back to defaults.
+      // app on startup, so both fall back to defaults. An existing but
+      // unreadable file is preserved next to the original first, because the
+      // fallback silently drops data such as the registered project list.
+      const exists = await fs.stat(this.file).then(
+        () => true,
+        () => false,
+      )
+      if (exists) await fs.copyFile(this.file, `${this.file}.invalid.bak`).catch(() => {})
       return { ...DEFAULT_SETTINGS }
     }
   }

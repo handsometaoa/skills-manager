@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { toast } from 'sonner'
-import { FolderGit2, FolderOpen, Plus, RefreshCw, Trash2 } from 'lucide-react'
+import { FolderGit2, FolderOpen, Plus, RefreshCw, TriangleAlert, Trash2 } from 'lucide-react'
 import type {
   Compatibility,
   ProjectScan,
@@ -41,6 +41,7 @@ export function ProjectView({ workspace }: { workspace: WorkspaceController }) {
   const confirm = useConfirm()
   const activeProjectPath = workspace.activeProjectPath
   const [scan, setScan] = useState<ProjectScan | null>(null)
+  const [scanError, setScanError] = useState('')
   const [busy, setBusy] = useState(false)
   const [viewing, setViewing] = useState<{ skill: Skill; detail: SkillDetail } | null>(null)
   const [collecting, setCollecting] = useState<Skill | null>(null)
@@ -50,22 +51,31 @@ export function ProjectView({ workspace }: { workspace: WorkspaceController }) {
   useEffect(() => {
     if (!activeProjectPath) {
       setScan(null)
+      setScanError('')
       return
     }
     setBusy(true)
+    setScanError('')
     window.skills
       .scanProject(activeProjectPath)
       .then(setScan)
-      .catch((e) => toast.error(cleanError(e)))
+      .catch((e) => {
+        setScan(null)
+        setScanError(cleanError(e))
+        toast.error(cleanError(e))
+      })
       .finally(() => setBusy(false))
   }, [activeProjectPath])
 
   const rescan = async () => {
     if (!activeProjectPath) return
     setBusy(true)
+    setScanError('')
     try {
       setScan(await window.skills.scanProject(activeProjectPath))
     } catch (e) {
+      setScan(null)
+      setScanError(cleanError(e))
       toast.error(cleanError(e))
     } finally {
       setBusy(false)
@@ -74,6 +84,14 @@ export function ProjectView({ workspace }: { workspace: WorkspaceController }) {
 
   /** Removes the project from the app registry (the folder itself is untouched). */
   const removeProject = async () => {
+    const ok = await confirm({
+      title: '移除此项目？',
+      description: `仅从应用中移除该项目的注册（侧边栏入口），项目文件夹与其中的 Skill 保持不变。
+
+${activeProjectPath}`,
+      confirmText: '确认移除',
+    })
+    if (!ok) return
     try {
       const settings = await window.skills.getSettings()
       await window.skills.saveSettings({
@@ -229,6 +247,24 @@ ${skill.path}
                 </div>
               )}
             </>
+          ) : scanError ? (
+            <div className="flex flex-col items-center gap-3 rounded-xl border bg-card px-6 py-14 text-center">
+              <span className="bg-muted text-muted-foreground flex size-12 items-center justify-center rounded-xl">
+                <TriangleAlert className="size-6" />
+              </span>
+              <h2 className="text-base font-semibold">无法扫描该项目</h2>
+              <p className="text-destructive max-w-lg text-sm">{scanError}</p>
+              <code className="bg-muted rounded px-1.5 py-0.5 text-xs break-all">
+                {activeProjectPath}
+              </code>
+              <p className="text-muted-foreground max-w-lg text-xs">
+                项目文件夹可能已被移动、重命名或删除。请恢复文件夹后重试，或将其从工作空间移除。
+              </p>
+              <Button variant="outline" disabled={busy} onClick={() => void rescan()}>
+                <RefreshCw />
+                重新扫描
+              </Button>
+            </div>
           ) : (
             <div className="text-muted-foreground rounded-xl border bg-card p-8 text-center text-sm">
               正在扫描项目…
@@ -427,14 +463,22 @@ function InstallDialog({
     setBusy(true)
     try {
       for (const toolId of targets) {
-        await window.skills.installToProject({
-          sources: chosen,
-          toolId: toolId as ProjectToolScan['toolId'],
-          projectPath: scan.projectPath,
-        })
+        const tool = scan.tools.find((t) => t.toolId === toolId)
+        try {
+          await window.skills.installToProject({
+            sources: chosen,
+            toolId: toolId as ProjectToolScan['toolId'],
+            projectPath: scan.projectPath,
+          })
+        } catch (e) {
+          // Earlier targets in the loop are already installed; naming the
+          // failing one lets the user retry just the rest.
+          throw new Error(`安装到 ${tool?.name ?? toolId} 时失败：${cleanError(e)}`, { cause: e })
+        }
       }
       toast.success(`已安装到项目内 ${targets.length} 个目录`)
       onInstalled()
+      onClose()
     } catch (e) {
       toast.error(cleanError(e))
       setBusy(false)
