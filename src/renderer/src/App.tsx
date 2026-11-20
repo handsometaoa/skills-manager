@@ -59,6 +59,10 @@ export function App() {
     tool,
     isLibrary,
     isTrash,
+    projects,
+    activeProjectPath,
+    setActiveProjectPath,
+    addProject,
     isSettings,
     isProject,
     installed,
@@ -111,7 +115,16 @@ export function App() {
       <a href="#workspace" className="sr-only focus:not-sr-only">
         跳至内容
       </a>
-      <Sidebar data={data} page={page} isLibrary={isLibrary} navigate={navigate} />
+      <Sidebar
+        data={data}
+        page={page}
+        isLibrary={isLibrary}
+        navigate={navigate}
+        projects={projects}
+        activeProjectPath={activeProjectPath}
+        setActiveProjectPath={setActiveProjectPath}
+        addProject={addProject}
+      />
       <div className="flex min-w-0 flex-1 flex-col">
         <header className="app-region-drag flex h-12 shrink-0 items-center justify-between gap-3 border-b pl-4">
           <div className="text-muted-foreground flex min-w-0 items-center gap-1.5 text-sm">

@@ -470,7 +470,10 @@ export class SkillStore {
     const candidate = await this.inspect(source)
     const linked = this.records.filter((r) => r.libraryId === id)
     if (!linked.length) throw new Error('该 Skill 尚未安装到任何工具，请先从仓库安装')
-    this.assertToolFormat(candidate, linked.map((r) => r.toolId))
+    this.assertToolFormat(
+      candidate,
+      linked.map((r) => r.toolId),
+    )
 
     const previousHashes = linked.map((r) => r.hashes)
     const updated: ToolId[] = []
@@ -560,18 +563,41 @@ export class SkillStore {
    * live outside the scanned user directories). Refuses anything the app
    * manages or cannot fully validate as a skill directory.
    */
+  /** Persists project-level installations so they can be updated and recycled later. */
+  findInstallByPath(absPath: string) {
+    return this.records.find((r) => r.path === path.resolve(absPath))
+  }
+  async recordInstall(
+    entries: { path: string; toolId: ToolId; libraryId?: string }[],
+    source: string,
+  ) {
+    for (const entry of entries) {
+      this.records.push({
+        id: randomUUID(),
+        toolId: entry.toolId,
+        path: entry.path,
+        source,
+        hashes: await this.hashes(entry.path),
+        ...(entry.libraryId ? { libraryId: entry.libraryId } : {}),
+      })
+    }
+    await this.save()
+  }
+  findLibraryIdByPath(source: string): string | undefined {
+    const resolved = path.resolve(source)
+    return this.library.find((entry) => this.libraryPath(entry) === resolved)?.id
+  }
   async deleteExternalPath(absPath: string) {
     const resolved = path.resolve(absPath)
-    if (this.records.some((r) => r.path === resolved))
-      throw new Error('该目录由应用管理，请在对应工具页面使用卸载')
+    const record = this.records.find((r) => r.path === resolved)
     let skill: Skill
     try {
       const candidate = await this.inspect(resolved)
       skill = {
         ...candidate,
-        id: `external:${resolved}`,
-        toolId: 'library',
-        managed: false,
+        id: record?.id ?? `external:${resolved}`,
+        toolId: record?.toolId ?? 'library',
+        managed: !!record,
         linked: false,
       }
     } catch (e) {
@@ -581,14 +607,26 @@ export class SkillStore {
     }
     if ((await fs.lstat(resolved)).isSymbolicLink())
       throw new Error('暂不删除链接目录，请在文件管理器中处理链接')
-    await this.recycle(skill)
+    // Managed copies (project installs) keep their uninstall semantics:
+    // recycling with the installation payload also removes the record.
+    await this.recycle(skill, record ? { installation: record } : {})
   }
   async uninstall(id: string) {
     const record = this.records.find((r) => r.id === id)
     if (!record) throw new Error('仅支持卸载本工具安装的 Skill')
     if ((await fs.lstat(record.path)).isSymbolicLink())
       throw new Error('安装目录已变为链接，停止卸载')
-    await this.recycle(await this.findSkill(id), { installation: record })
+    // Project-level installs are not part of the user-level scan, so build
+    // the skill identity from the recorded path instead of the snapshot.
+    const candidate = await this.inspect(record.path)
+    const skill: Skill = {
+      ...candidate,
+      id: record.id,
+      toolId: record.toolId,
+      managed: true,
+      linked: false,
+    }
+    await this.recycle(skill, { installation: record })
   }
   private async moveDirectory(source: string, destination: string) {
     try {

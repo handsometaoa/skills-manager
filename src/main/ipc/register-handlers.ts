@@ -8,7 +8,7 @@ import { ProjectService } from '../services/project-service'
 import { isToolId } from '../../shared/compatibility'
 import { IPC_CHANNELS } from '../../shared/ipc'
 import { createIpcRegistrar } from './registrar'
-import type { ThemeMode } from '../../shared/types'
+import type { ThemeMode, ToolId } from '../../shared/types'
 
 export function registerHandlers(
   store: SkillStore,
@@ -236,7 +236,20 @@ export function registerHandlers(
       request.sources.some((s) => typeof s !== 'string' || !sources.allowedSources.has(s))
     )
       throw new Error('请先选择安装来源')
-    return projects.install(input)
+    const projectSources = request.sources as string[]
+    const created = (await projects.install(input)) as string[]
+    const toolId = request.toolId as ToolId
+    // Track project installs so they can be updated from the library and
+    // recycled through the normal uninstall flow afterwards.
+    await store.recordInstall(
+      created.map((dest, index) => ({
+        path: dest,
+        toolId,
+        libraryId: store.findLibraryIdByPath(projectSources[index]),
+      })),
+      projectSources[0],
+    )
+    return created
   })
   handle(IPC_CHANNELS.projectBrowse, (absPath: unknown) => projects.browse(absPath))
   handle(IPC_CHANNELS.projectReadFile, (absPath: unknown, relativePath: unknown) =>

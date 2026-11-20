@@ -43,11 +43,12 @@
 
 ### 项目级 Skill 管理
 
-侧边栏 **项目 Skill** 页面支持临时选择一个项目文件夹，管理其中各 Agent 的项目级目录（`.claude/skills`、`.agents/skills`、`.cursor/skills`、`.qoder/skills`、`.opencode/skills`、`.gemini/skills`、`.github/skills`）：
+侧边栏 **项目** 分组支持添加项目文件夹（持久保留，可随时移除），管理其中各 Agent 的项目级目录（`.claude/skills`、`.agents/skills`、`.cursor/skills`、`.qoder/skills`、`.opencode/skills`、`.gemini/skills`、`.github/skills`）：
 
 - **扫描**：列出各目录中已发现的 Skill；**安装**：从中央仓库复制到选定的 Agent 目录；**收录**：把项目 Skill 的独立副本收入仓库；**删除**：进入应用回收站，随时可还原。
-- 会话是临时的：项目文件夹不会被保存，更换后需重新选择；删除走的回收站是持久的，还原会回到项目内的原路径。
-- 项目级安装不写入管理记录，属于无关联副本。ZCode 官方未明确项目级目录，暂不支持。
+- **从仓库更新**：通过仓库安装的项目 Skill，一键把仓库当前版本覆盖同步到项目目录。
+- 添加的项目会持久保留（可在项目页移除，仅移除注册、不删除文件夹）；删除走的回收站是持久的，还原会回到项目内的原路径。
+- ZCode 官方未明确项目级目录，暂不支持。
 
 ### 浏览、删除与回收站
 

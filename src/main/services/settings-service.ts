@@ -1,6 +1,12 @@
 import fs from 'node:fs/promises'
 import path from 'node:path'
-import { TOOL_IDS, type Settings, type ThemeMode, type ToolScanSettings } from '../../shared/types'
+import {
+  TOOL_IDS,
+  type RegisteredProject,
+  type Settings,
+  type ThemeMode,
+  type ToolScanSettings,
+} from '../../shared/types'
 import { writeJsonFile } from '../storage/json-file'
 
 export const DEFAULT_SETTINGS: Settings = { theme: 'system', tools: {} }
@@ -35,11 +41,28 @@ const parseToolScanSettings = (value: unknown): ToolScanSettings => {
 /** Validates untrusted input into a complete Settings document. */
 export function parseSettings(value: unknown): Settings {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('设置格式错误')
-  const { theme, libraryRoot, tools } = value as Record<string, unknown>
+  const { theme, libraryRoot, tools, projects } = value as Record<string, unknown>
   if (!THEMES.includes(theme as ThemeMode)) throw new Error('无效的主题模式')
   const settings: Settings = { theme: theme as ThemeMode, tools: {} }
   if (libraryRoot !== undefined && libraryRoot !== null && libraryRoot !== '')
     settings.libraryRoot = assertDirectory(libraryRoot, '仓库')
+  if (projects !== undefined) {
+    if (!Array.isArray(projects)) throw new Error('项目列表格式错误')
+    const seen = new Set<string>()
+    const list: RegisteredProject[] = []
+    for (const entry of projects) {
+      if (!entry || typeof entry !== 'object') throw new Error('项目列表格式错误')
+      const projectPath = assertDirectory((entry as Record<string, unknown>).path, '项目')
+      if (seen.has(projectPath)) throw new Error('项目列表中存在重复路径')
+      seen.add(projectPath)
+      const addedAt = (entry as Record<string, unknown>).addedAt
+      list.push({
+        path: projectPath,
+        addedAt: typeof addedAt === 'string' && addedAt ? addedAt : new Date().toISOString(),
+      })
+    }
+    if (list.length) settings.projects = list
+  }
   if (tools !== undefined) {
     if (!tools || typeof tools !== 'object' || Array.isArray(tools))
       throw new Error('工具设置格式错误')

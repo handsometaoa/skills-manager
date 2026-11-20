@@ -118,9 +118,16 @@ export interface ToolScanSettings {
   extraRoots?: string[]
   enabled?: boolean
 }
+export interface RegisteredProject {
+  /** Absolute project folder path (unique key). */
+  path: string
+  addedAt: string
+}
 export interface Settings {
   theme: ThemeMode
   /** Custom central library location. Undefined means the default `<userData>/library`. */
   libraryRoot?: string
   tools: Partial<Record<ToolId, ToolScanSettings>>
+  /** Persisted project folders for project-level Skill management. */
+  projects?: RegisteredProject[]
 }

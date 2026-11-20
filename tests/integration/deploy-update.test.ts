@@ -25,7 +25,11 @@ test('deployUpdate copies library content to every linked installation', async (
     const libraryId = (await f.store.scan()).library[0].id
     await f.store.installLibrary([libraryId], ['claude', 'codex'])
     // Simulate a library content revision (edit an existing file, add a new one).
-    await f.store.writeFile(libraryId, 'SKILL.md', '---\nname: review\ndescription: Review v2\n---\n# Review v2\n')
+    await f.store.writeFile(
+      libraryId,
+      'SKILL.md',
+      '---\nname: review\ndescription: Review v2\n---\n# Review v2\n',
+    )
     const libraryDir = (await f.store.scan()).library[0].path
     await fs.writeFile(path.join(libraryDir, 'changelog.md'), 'v2 notes')
     const result = await f.store.deployUpdate(libraryId)

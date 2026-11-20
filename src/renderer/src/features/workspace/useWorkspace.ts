@@ -1,5 +1,12 @@
 import { useEffect, useState } from 'react'
-import type { Snapshot, ToolId, Skill, SkillDetail } from '../../../../shared/types'
+import { toast } from 'sonner'
+import type {
+  RegisteredProject,
+  Snapshot,
+  ToolId,
+  Skill,
+  SkillDetail,
+} from '../../../../shared/types'
 import { cleanError } from '../../lib/errors'
 import { discoveredBy, supportsTool } from '../../../../shared/compatibility'
 
@@ -29,6 +36,8 @@ export function useWorkspace() {
   const [direct, setDirect] = useState<Skill | undefined>()
   const [selected, setSelected] = useState<string[]>([])
   const [showDiagnostics, setShowDiagnostics] = useState(false)
+  const [projects, setProjects] = useState<RegisteredProject[]>([])
+  const [activeProjectPath, setActiveProjectPath] = useState<string | null>(null)
   const refresh = async () => setData(await window.skills.scan())
   const run = async (action: () => Promise<void>, success?: string) => {
     setBusy(true)
@@ -45,7 +54,46 @@ export function useWorkspace() {
   }
   useEffect(() => {
     void run(refresh)
+    window.skills
+      .getSettings()
+      .then((s) => setProjects(s.projects ?? []))
+      .catch(() => {})
   }, [])
+  const reloadProjects = async () => {
+    try {
+      const s = await window.skills.getSettings()
+      setProjects(s.projects ?? [])
+    } catch {
+      // ignore
+    }
+  }
+  /** Registers a project folder (persisted in settings) and opens it. */
+  const addProject = async (): Promise<string | null> => {
+    try {
+      const dir = await window.skills.pickDirectory()
+      if (!dir) return null
+      const scan = await window.skills.scanProject(dir)
+      const resolved = scan.projectPath
+      const settings = await window.skills.getSettings()
+      const existing = settings.projects ?? []
+      if (!existing.some((p) => p.path === resolved))
+        await window.skills.saveSettings({
+          ...settings,
+          projects: [...existing, { path: resolved, addedAt: new Date().toISOString() }],
+        })
+      setProjects((current) =>
+        current.some((p) => p.path === resolved)
+          ? current
+          : [...current, { path: resolved, addedAt: new Date().toISOString() }],
+      )
+      setActiveProjectPath(resolved)
+      navigate('project')
+      return resolved
+    } catch (e) {
+      toast.error(cleanError(e))
+      return null
+    }
+  }
   const navigate = (next: typeof page) => {
     setPage(next)
     setOwnership('all')
@@ -194,6 +242,11 @@ export function useWorkspace() {
     completeImport,
     completeInstall,
     completeCreate,
+    projects,
+    reloadProjects,
+    addProject,
+    activeProjectPath,
+    setActiveProjectPath,
   }
 }
 export type WorkspaceController = ReturnType<typeof useWorkspace>

@@ -1,4 +1,4 @@
-import { FolderGit2, Library, Settings, Trash2 } from 'lucide-react'
+import { FolderGit2, Library, Plus, Settings, Trash2 } from 'lucide-react'
 import { ToolIcon } from '../ui/Icons'
 import type { WorkspaceController } from '../../features/workspace/useWorkspace'
 import { cn } from '@/lib/utils'
@@ -53,7 +53,21 @@ export function Sidebar({
   page,
   isLibrary,
   navigate,
-}: Pick<WorkspaceController, 'data' | 'page' | 'isLibrary' | 'navigate'>) {
+  projects,
+  activeProjectPath,
+  setActiveProjectPath,
+  addProject,
+}: Pick<
+  WorkspaceController,
+  | 'data'
+  | 'page'
+  | 'isLibrary'
+  | 'navigate'
+  | 'projects'
+  | 'activeProjectPath'
+  | 'setActiveProjectPath'
+  | 'addProject'
+>) {
   return (
     <aside
       className={cn(
@@ -105,13 +119,30 @@ export function Sidebar({
       </div>
 
       <div className="flex flex-col gap-1">
-        <div className="text-muted-foreground px-2.5 pb-1 text-xs font-medium">项目</div>
-        <NavItem
-          active={page === 'project'}
-          onClick={() => navigate('project')}
-          icon={<FolderGit2 className="text-muted-foreground size-4" />}
-          label="项目 Skill"
-        />
+        <div className="text-muted-foreground flex items-center justify-between px-2.5 pb-1 text-xs font-medium">
+          项目
+          <span>{projects.length}</span>
+        </div>
+        <nav className="flex flex-col gap-1" aria-label="项目">
+          {projects.map((project) => (
+            <NavItem
+              key={project.path}
+              active={page === 'project' && activeProjectPath === project.path}
+              onClick={() => {
+                setActiveProjectPath(project.path)
+                navigate('project')
+              }}
+              icon={<FolderGit2 className="text-muted-foreground size-4" />}
+              label={project.path.split(/[\\/]/).filter(Boolean).at(-1) ?? project.path}
+            />
+          ))}
+          <NavItem
+            active={false}
+            onClick={() => void addProject()}
+            icon={<Plus className="text-muted-foreground size-4" />}
+            label="添加项目"
+          />
+        </nav>
       </div>
 
       <div className="flex flex-col gap-1">

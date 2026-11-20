@@ -12,7 +12,10 @@ import type { ProjectScan, Skill, SkillDetail } from '../../shared/types'
  */
 export class ProjectService {
   private last: ProjectScan | undefined
-  constructor(private readonly registerSource: (path: string, source: string) => void) {}
+  constructor(
+    private readonly registerSource: (path: string, source: string) => void,
+    private readonly resolveLink: (absPath: string) => { managed: boolean; libraryId?: string },
+  ) {}
 
   async scan(projectPath: unknown): Promise<ProjectScan> {
     if (typeof projectPath !== 'string' || !projectPath.trim()) throw new Error('请选择项目文件夹')
@@ -29,13 +32,15 @@ export class ProjectService {
       try {
         for (const candidate of await discoverSkills(directory)) {
           const abs = path.join(directory, candidate.name)
+          const link = this.resolveLink(abs)
           skills.push({
             ...candidate,
             id: `${toolId}:${abs}`,
             path: abs,
             toolId,
-            managed: false,
+            managed: link.managed,
             linked: false,
+            libraryId: link.libraryId,
           })
           // Register so later browse/collect/install calls pass source validation.
           this.registerSource(abs, abs)

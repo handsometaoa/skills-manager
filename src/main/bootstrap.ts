@@ -31,8 +31,12 @@ export function bootstrap(): void {
       const store = new SkillStore(app.getPath('userData'), os.homedir(), saved)
       await store.init()
       sources = new SourceService((root) => store.discover(root))
-      const projects = new ProjectService((path, source) =>
-        sources!.allowedSources.set(path, source),
+      const projects = new ProjectService(
+        (path, source) => sources!.allowedSources.set(path, source),
+        (absPath) => {
+          const record = store.findInstallByPath(absPath)
+          return record ? { managed: true, libraryId: record.libraryId } : { managed: false }
+        },
       )
       updater = new UpdaterService(() => {
         if (!mainWindow || mainWindow.isDestroyed()) throw new Error('应用窗口已关闭')

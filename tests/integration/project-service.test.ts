@@ -23,7 +23,13 @@ async function fixture() {
   const store = new SkillStore(path.join(root, 'data'), path.join(root, 'home'))
   await store.init()
   const registered = new Set<string>()
-  const projects = new ProjectService((path) => registered.add(path))
+  const projects = new ProjectService(
+    (path) => registered.add(path),
+    (absPath) => {
+      const record = store.findInstallByPath(absPath)
+      return record ? { managed: true, libraryId: record.libraryId } : { managed: false }
+    },
+  )
   return {
     root,
     project,

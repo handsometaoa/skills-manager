@@ -113,8 +113,7 @@ export function SkillTable({ workspace }: { workspace: WorkspaceController }) {
                 setInstalling([skill])
               }}
               deploy={() =>
-              void run(
-                async () => {
+                void run(async () => {
                   const result = await window.skills.deployUpdate(skill.id)
                   await refresh()
                   setMessage({
@@ -122,10 +121,9 @@ export function SkillTable({ workspace }: { workspace: WorkspaceController }) {
                       result.skipped.length ? `（跳过 ${result.skipped.length} 个）` : ''
                     }`,
                   })
-                },
-              )
-            }
-            compatibility={(value) =>
+                })
+              }
+              compatibility={(value) =>
                 void run(async () => {
                   await window.skills.setCompatibility(skill.id, value)
                   await refresh()

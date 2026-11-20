@@ -616,9 +616,9 @@ app
       throw new Error('Written content missing')
     // 项目级管理：临时选择项目 → 扫描分组 → 查看 → 收录 → 从仓库安装
     await evaluate(
-      "[...document.querySelectorAll('.nav-item')].find(b => b.textContent.includes('项目 Skill')).click()",
+      "[...document.querySelectorAll('.nav-item')].find(b => b.textContent.includes('添加项目')).click()",
     )
-    await click('选择项目文件夹')
+    await click('添加项目')
     await wait("document.querySelector('main').textContent.includes('qa-project-skill')")
     await click('查看')
     await wait("!!document.querySelector('.skill-viewer')")
@@ -643,6 +643,18 @@ app
     )
     if (!invocations.some((i) => i.name === 'project-install'))
       throw new Error('Project install IPC failed')
+    // 项目持久化：侧边栏保留项目入口；移除后消失
+    if (
+      !(await evaluate(
+        "[...document.querySelectorAll('.nav-item')].some(b => b.textContent.includes('demo-project'))",
+      ))
+    )
+      throw new Error('Registered project missing from sidebar')
+    await click('移除项目')
+    await wait("document.querySelector('main').textContent.includes('管理项目级 Skill')")
+    await wait(
+      "[...document.querySelectorAll('.nav-item')].every(b => !b.textContent.includes('demo-project'))",
+    )
     // 一键下发更新：仓库当前版本覆盖已安装副本
     await evaluate(
       "[...document.querySelectorAll('.nav-item')].find(b => b.textContent.includes('中央仓库')).click()",
@@ -653,8 +665,7 @@ app
     await wait(
       "[...document.querySelectorAll('[data-sonner-toast]')].some(t => t.textContent.includes('已下发更新'))",
     )
-    if (!invocations.some((i) => i.name === 'library-deploy'))
-      throw new Error('Deploy IPC failed')
+    if (!invocations.some((i) => i.name === 'library-deploy')) throw new Error('Deploy IPC failed')
     // Settings page: theme radio, library location, agent scan directories
     await evaluate(
       "[...document.querySelectorAll('.nav-item')].find(b => b.textContent.includes('设置')).click()",

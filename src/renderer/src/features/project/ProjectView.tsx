@@ -1,6 +1,6 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { toast } from 'sonner'
-import { FolderGit2, FolderOpen, Plus, RefreshCw, Trash2, TriangleAlert } from 'lucide-react'
+import { FolderGit2, FolderOpen, Plus, RefreshCw, Trash2 } from 'lucide-react'
 import type {
   Compatibility,
   ProjectScan,
@@ -37,18 +37,32 @@ const SUPPORTED_MATRIX = [
 ] as const
 
 export function ProjectView({ workspace }: { workspace: WorkspaceController }) {
+  const activeProjectPath = workspace.activeProjectPath
   const [scan, setScan] = useState<ProjectScan | null>(null)
   const [busy, setBusy] = useState(false)
   const [viewing, setViewing] = useState<{ skill: Skill; detail: SkillDetail } | null>(null)
   const [collecting, setCollecting] = useState<Skill | null>(null)
   const [installing, setInstalling] = useState(false)
 
-  const pickProject = async () => {
+  // Rescan whenever the active project changes (selected from the sidebar).
+  useEffect(() => {
+    if (!activeProjectPath) {
+      setScan(null)
+      return
+    }
+    setBusy(true)
+    window.skills
+      .scanProject(activeProjectPath)
+      .then(setScan)
+      .catch((e) => toast.error(cleanError(e)))
+      .finally(() => setBusy(false))
+  }, [activeProjectPath])
+
+  const rescan = async () => {
+    if (!activeProjectPath) return
     setBusy(true)
     try {
-      const dir = await window.skills.pickDirectory()
-      if (!dir) return
-      setScan(await window.skills.scanProject(dir))
+      setScan(await window.skills.scanProject(activeProjectPath))
     } catch (e) {
       toast.error(cleanError(e))
     } finally {
@@ -56,15 +70,20 @@ export function ProjectView({ workspace }: { workspace: WorkspaceController }) {
     }
   }
 
-  const rescan = async () => {
-    if (!scan) return
-    setBusy(true)
+  /** Removes the project from the app registry (the folder itself is untouched). */
+  const removeProject = async () => {
     try {
-      setScan(await window.skills.scanProject(scan.projectPath))
+      const settings = await window.skills.getSettings()
+      await window.skills.saveSettings({
+        ...settings,
+        projects: (settings.projects ?? []).filter((p) => p.path !== activeProjectPath),
+      })
+      await workspace.reloadProjects()
+      workspace.setActiveProjectPath(null)
+      setScan(null)
+      toast.success('已从应用移除项目（文件夹未删除）')
     } catch (e) {
       toast.error(cleanError(e))
-    } finally {
-      setBusy(false)
     }
   }
 
@@ -107,21 +126,39 @@ export function ProjectView({ workspace }: { workspace: WorkspaceController }) {
     }
   }
 
+  /** Re-deploys the current library content over a tracked project copy. */
+  const updateFromLibrary = async (skill: Skill) => {
+    if (!skill.libraryId) return
+    setBusy(true)
+    try {
+      const result = await window.skills.deployUpdate(skill.libraryId)
+      await rescan()
+      toast.success(
+        `已从仓库更新：${skill.name}（${result.updated.length} 个副本同步${result.skipped.length ? `，${result.skipped.length} 个跳过` : ''}）`,
+      )
+    } catch (e) {
+      toast.error(cleanError(e))
+    } finally {
+      setBusy(false)
+    }
+  }
+
   return (
     <div className="space-y-4">
-      {!scan ? (
+      {!activeProjectPath ? (
         <div className="flex flex-col items-center gap-4 rounded-xl border bg-card px-6 py-16 text-center">
           <span className="bg-muted text-muted-foreground flex size-12 items-center justify-center rounded-xl">
             <FolderGit2 className="size-6" />
           </span>
           <h2 className="text-base font-semibold">管理项目级 Skill</h2>
           <p className="text-muted-foreground max-w-lg text-sm">
-            临时选择一个项目文件夹，扫描其中各 Agent 的项目级 Skill
-            目录并进行管理。项目不会被保存，可随时更换；删除的 Skill 进入回收站，之后仍可还原。
+            添加一个项目文件夹，扫描其中各 Agent 的项目级 Skill
+            目录并进行管理。已添加的项目会保留在侧边栏，可随时移除；删除的 Skill
+            进入回收站，之后仍可还原。
           </p>
-          <Button disabled={busy} onClick={() => void pickProject()}>
+          <Button disabled={busy} onClick={() => void workspace.addProject()}>
             <FolderOpen />
-            选择项目文件夹
+            添加项目
           </Button>
           <div className="text-muted-foreground grid grid-cols-2 gap-x-8 gap-y-1 text-xs">
             {SUPPORTED_MATRIX.map(([name, dir]) => (
@@ -138,15 +175,11 @@ export function ProjectView({ workspace }: { workspace: WorkspaceController }) {
             <div className="min-w-0">
               <h1 className="flex items-center gap-2 text-lg font-semibold">
                 <FolderGit2 className="size-5" />
-                项目 Skill
+                {activeProjectPath.split(/[\\/]/).filter(Boolean).at(-1)}
               </h1>
-              <code className="text-muted-foreground text-xs break-all">{scan.projectPath}</code>
+              <code className="text-muted-foreground text-xs break-all">{scan?.projectPath}</code>
             </div>
             <div className="flex items-center gap-2">
-              <Button variant="outline" disabled={busy} onClick={() => void pickProject()}>
-                <FolderOpen />
-                更换项目
-              </Button>
               <Button variant="outline" disabled={busy} onClick={() => void rescan()}>
                 <RefreshCw />
                 重新扫描
@@ -155,29 +188,37 @@ export function ProjectView({ workspace }: { workspace: WorkspaceController }) {
                 <Plus />
                 从仓库安装
               </Button>
+              <Button variant="ghost" disabled={busy} onClick={() => void removeProject()}>
+                移除项目
+              </Button>
             </div>
           </section>
-          <div className="text-muted-foreground flex items-start gap-2 rounded-lg bg-muted/60 p-3 text-xs">
-            <TriangleAlert className="mt-0.5 size-3.5 shrink-0" />
-            临时会话：项目不会被保存，更换或关闭后需重新选择；删除的 Skill 在回收站中仍可还原。
-          </div>
-          {scan.tools.map((tool) => (
-            <ToolSection
-              key={tool.toolId}
-              tool={tool}
-              busy={busy}
-              onView={(skill) => void openViewer(skill)}
-              onCollect={(skill) => setCollecting(skill)}
-              onDelete={(skill) => void removeSkill(skill)}
-            />
-          ))}
-          {scan.diagnostics.length > 0 && (
-            <div className="text-muted-foreground space-y-1 rounded-lg bg-muted/60 p-3 text-xs">
-              {scan.diagnostics.map((d, i) => (
-                <p key={i} className="break-all">
-                  {d}
-                </p>
+          {scan ? (
+            <>
+              {scan.tools.map((tool) => (
+                <ToolSection
+                  key={tool.toolId}
+                  tool={tool}
+                  busy={busy}
+                  onView={(skill) => void openViewer(skill)}
+                  onCollect={(skill) => setCollecting(skill)}
+                  onUpdate={(skill) => void updateFromLibrary(skill)}
+                  onDelete={(skill) => void removeSkill(skill)}
+                />
               ))}
+              {scan.diagnostics.length > 0 && (
+                <div className="text-muted-foreground space-y-1 rounded-lg bg-muted/60 p-3 text-xs">
+                  {scan.diagnostics.map((d, i) => (
+                    <p key={i} className="break-all">
+                      {d}
+                    </p>
+                  ))}
+                </div>
+              )}
+            </>
+          ) : (
+            <div className="text-muted-foreground rounded-xl border bg-card p-8 text-center text-sm">
+              正在扫描项目…
             </div>
           )}
         </>
@@ -223,12 +264,14 @@ function ToolSection({
   busy,
   onView,
   onCollect,
+  onUpdate,
   onDelete,
 }: {
   tool: ProjectToolScan
   busy: boolean
   onView: (skill: Skill) => void
   onCollect: (skill: Skill) => void
+  onUpdate: (skill: Skill) => void
   onDelete: (skill: Skill) => void
 }) {
   return (
@@ -258,14 +301,26 @@ function ToolSection({
                 <Button variant="ghost" size="sm" disabled={busy} onClick={() => onView(skill)}>
                   查看
                 </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  disabled={busy}
-                  onClick={() => onCollect(skill)}
-                >
-                  收录
-                </Button>
+                {skill.libraryId ? (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={busy}
+                    title="把仓库当前版本复制到本项目目录"
+                    onClick={() => onUpdate(skill)}
+                  >
+                    从仓库更新
+                  </Button>
+                ) : (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={busy}
+                    onClick={() => onCollect(skill)}
+                  >
+                    收录
+                  </Button>
+                )}
                 <Button
                   variant="ghost"
                   size="icon-sm"
