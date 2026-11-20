@@ -3,6 +3,8 @@ import { Button } from '../../components/ui/button'
 import { Checkbox } from '../../components/ui/checkbox'
 import { Skeleton } from '../../components/ui/skeleton'
 import { SkillRow } from '../skills/SkillRow'
+import { useConfirm } from '@/lib/confirm'
+import { discoveredBy } from '../../../../shared/compatibility'
 import type { WorkspaceController } from './useWorkspace'
 
 const GRID = 'grid grid-cols-[minmax(0,1fr)_180px_220px_210px] items-center gap-3 px-3 py-2.5'
@@ -19,6 +21,7 @@ export function SkillTable({ workspace }: { workspace: WorkspaceController }) {
     selected,
     setSelected,
     setMessage,
+    installed,
     refresh,
     run,
     navigate,
@@ -33,6 +36,7 @@ export function SkillTable({ workspace }: { workspace: WorkspaceController }) {
     openImport,
     installCurrent,
   } = workspace
+  const confirm = useConfirm()
   return (
     <section
       className="skill-table overflow-hidden rounded-xl border bg-card"
@@ -113,15 +117,30 @@ export function SkillTable({ workspace }: { workspace: WorkspaceController }) {
                 setInstalling([skill])
               }}
               deploy={() =>
-                void run(async () => {
-                  const result = await window.skills.deployUpdate(skill.id)
-                  await refresh()
-                  setMessage({
-                    text: `已下发更新：${result.updated.length} 个工具${
-                      result.skipped.length ? `（跳过 ${result.skipped.length} 个）` : ''
-                    }`,
+                void (async () => {
+                  const affected = data.tools
+                    .filter((t) =>
+                      installed.some((i) => i.libraryId === skill.id && discoveredBy(i, t.id)),
+                    )
+                    .map((t) => t.name)
+                    .join('、')
+                  const ok = await confirm({
+                    title: `下发更新：${skill.name}？`,
+                    description: `仓库当前版本将复制到所有安装过此 Skill 的工具目录（${affected}），覆盖这些副本中的本地修改。内容已同步的副本会自动跳过。`,
+                    confirmText: '确认下发',
+                    destructive: true,
                   })
-                })
+                  if (!ok) return
+                  await run(async () => {
+                    const result = await window.skills.deployUpdate(skill.id)
+                    await refresh()
+                    setMessage({
+                      text: `已下发更新：${result.updated.length} 个工具${
+                        result.skipped.length ? `（跳过 ${result.skipped.length} 个）` : ''
+                      }`,
+                    })
+                  })
+                })()
               }
               compatibility={(value) =>
                 void run(async () => {
@@ -130,18 +149,42 @@ export function SkillTable({ workspace }: { workspace: WorkspaceController }) {
                 }, '适用范围已更新。')
               }
               remove={() =>
-                void run(
-                  async () => {
-                    if (skill.toolId === 'library') await window.skills.deleteLibrary(skill.id)
-                    else if (skill.managed) await window.skills.uninstall(skill.id)
-                    else await window.skills.deleteExternal(skill.id)
-                    await refresh()
-                    setSelected(selected.filter((id) => id !== skill.id))
-                  },
-                  skill.toolId === 'library'
-                    ? '已移入回收站，各工具中的副本保留。'
-                    : '已移入回收站，可在左侧回收站还原。',
-                )
+                void (async () => {
+                  const affected = data.tools
+                    .filter((t) => discoveredBy(skill, t.id))
+                    .map((t) => t.name)
+                    .join('、')
+                  const ok = await confirm(
+                    skill.toolId === 'library'
+                      ? {
+                          title: `从仓库移出 ${skill.name}？`,
+                          description: `仓库副本将移入应用回收站，各工具中已安装的副本保留。\n${skill.path}`,
+                          confirmText: '确认移出仓库',
+                          destructive: true,
+                        }
+                      : {
+                          title: `${skill.managed ? '卸载' : '删除'} ${skill.name}？`,
+                          description: `整个目录将移入应用回收站，${
+                            skill.managed
+                              ? '还原后恢复管理关联'
+                              : '包括手动新增或修改过的文件'
+                          }。\n读取此目录的工具：${affected}\n\n${skill.path}`,
+                          confirmText: '确认移入回收站',
+                          destructive: true,
+                        },
+                  )
+                  if (!ok) return
+                  await run(
+                    async () => {
+                      if (skill.toolId === 'library') await window.skills.deleteLibrary(skill.id)
+                      else if (skill.managed) await window.skills.uninstall(skill.id)
+                      else await window.skills.deleteExternal(skill.id)
+                      await refresh()
+                      setSelected(selected.filter((id) => id !== skill.id))
+                    },
+                    '已移入回收站，可在左侧回收站还原。',
+                  )
+                })()
               }
             />
           ))}

@@ -25,6 +25,7 @@ import { useWorkspace } from './features/workspace/useWorkspace'
 import { discoveredBy } from '../../shared/compatibility'
 import { TrashPanel } from './features/workspace/TrashPanel'
 import { Button } from '@/components/ui/button'
+import { ConfirmProvider } from './lib/confirm'
 import { isMac } from './lib/platform'
 
 export function App() {
@@ -111,6 +112,7 @@ export function App() {
           : tool?.name
 
   return (
+    <ConfirmProvider>
     <div className="flex h-screen overflow-hidden">
       <a href="#workspace" className="sr-only focus:not-sr-only">
         跳至内容
@@ -417,5 +419,6 @@ export function App() {
       )}
       <Toaster position="bottom-right" offset={16} />
     </div>
+    </ConfirmProvider>
   )
 }

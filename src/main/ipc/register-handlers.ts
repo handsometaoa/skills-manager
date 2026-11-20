@@ -41,11 +41,6 @@ export function registerHandlers(
     if (value !== 'system' && value !== 'light' && value !== 'dark')
       throw new Error('无效的主题模式')
   }
-  const affectedTools = (ids: string[] = []) =>
-    store.tools
-      .filter((tool) => ids.includes(tool.id))
-      .map((tool) => tool.name)
-      .join('、')
   handle(IPC_CHANNELS.scan, () => store.scan())
   handle(IPC_CHANNELS.createSkill, (input: unknown) => {
     if (!input || typeof input !== 'object' || Array.isArray(input))
@@ -75,23 +70,6 @@ export function registerHandlers(
   })
   handle(IPC_CHANNELS.deployUpdate, async (id: unknown) => {
     if (typeof id !== 'string') throw new Error('无效 Skill')
-    const snapshot = await store.scan()
-    const skill = snapshot.library.find((s) => s.id === id)
-    if (!skill) throw new Error('未找到仓库 Skill')
-    const affected = snapshot.skills.filter((s) => s.libraryId === id)
-    if (!affected.length) throw new Error('该 Skill 尚未安装到任何工具，请先从仓库安装')
-    const toolNames = affected
-      .map((s) => snapshot.tools.find((t) => t.id === s.toolId)?.name ?? s.toolId)
-      .join('、')
-    const choice = await dialog.showMessageBox(getWindow(), {
-      type: 'question',
-      buttons: ['取消', '下发更新'],
-      defaultId: 0,
-      cancelId: 0,
-      message: `下发更新：${skill.name}？`,
-      detail: `仓库当前版本将复制到所有安装过此 Skill 的工具目录（${toolNames}），覆盖这些副本中的本地修改。\n\n内容已同步的副本会自动跳过。`,
-    })
-    if (choice.response !== 1) throw new Error('已取消下发')
     return store.deployUpdate(id)
   })
   handle(IPC_CHANNELS.collectSkill, async (id: unknown, compatibility: unknown) => {
@@ -114,15 +92,7 @@ export function registerHandlers(
     if (typeof id !== 'string') throw new Error('无效 Skill')
     const skill = (await store.scan()).library.find((s) => s.id === id)
     if (!skill) throw new Error('未找到仓库 Skill')
-    const choice = await dialog.showMessageBox(getWindow(), {
-      type: 'question',
-      buttons: ['取消', '移入回收站'],
-      defaultId: 0,
-      cancelId: 0,
-      message: `从中央仓库移除 ${skill.name}？`,
-      detail: `仓库副本将移入应用回收站，可从左侧回收站还原。各工具中已安装的独立副本会保留。\n\n${skill.path}`,
-    })
-    if (choice.response !== 1) throw new Error('已取消移除')
+    // The renderer confirms this destructive action with an in-app dialog.
     await store.deleteLibrary(id)
   })
   handle(IPC_CHANNELS.restoreTrash, async (id: unknown) => {
@@ -133,15 +103,7 @@ export function registerHandlers(
     if (typeof id !== 'string') throw new Error('无效回收站项目')
     const entry = (await store.scan()).trash.find((item) => item.id === id)
     if (!entry) throw new Error('回收站项目已不存在')
-    const choice = await dialog.showMessageBox(getWindow(), {
-      type: 'warning',
-      buttons: ['取消', '永久删除'],
-      defaultId: 0,
-      cancelId: 0,
-      message: `永久删除 ${entry.skill.name}？`,
-      detail: '回收站中的这份 Skill 将被永久删除，无法还原。',
-    })
-    if (choice.response !== 1) throw new Error('已取消永久删除')
+    // The renderer confirms this destructive action with an in-app dialog.
     await store.deleteTrash(id)
   })
   handle(IPC_CHANNELS.detail, (id: unknown) => {
@@ -184,31 +146,14 @@ export function registerHandlers(
     if (typeof id !== 'string') throw new Error('无效 Skill')
     const skill = (await store.scan()).skills.find((s) => s.id === id && !s.managed)
     if (!skill) throw new Error('未找到外部 Skill')
-    const tool = store.tools.find((t) => t.id === skill.toolId)!
-    const choice = await dialog.showMessageBox(getWindow(), {
-      type: 'warning',
-      buttons: ['取消', '移入回收站'],
-      defaultId: 0,
-      cancelId: 0,
-      message: `从 ${tool.name} 删除 ${skill.name}？`,
-      detail: `将整个目录移入应用回收站，包含你手动修改或新增的文件。\n\n读取此目录的工具：${affectedTools(skill.discoveredBy)}。删除后，这些工具都将无法从此目录发现该 Skill；引用此目录的链接也会失效。\n\n${skill.path}\n\n需要恢复时，请从左侧回收站还原。`,
-    })
-    if (choice.response !== 1) throw new Error('已取消删除')
+    // The renderer confirms this destructive action with an in-app dialog.
     await store.deleteExternal(id)
   })
   handle(IPC_CHANNELS.uninstall, async (id: unknown) => {
     if (typeof id !== 'string') throw new Error('无效 Skill')
     const skill = (await store.scan()).skills.find((s) => s.id === id && s.managed)
     if (!skill) throw new Error('未找到可卸载的 Skill')
-    const choice = await dialog.showMessageBox(getWindow(), {
-      type: 'question',
-      buttons: ['取消', '移入回收站'],
-      defaultId: 0,
-      cancelId: 0,
-      message: `卸载 ${skill.name}？`,
-      detail: `将整个 Skill 目录移入应用回收站，还原时保留安装关联。\n\n读取此目录的工具：${affectedTools(skill.discoveredBy)}。移除后，这些工具都将无法从此目录发现该 Skill。\n\n${skill.path}`,
-    })
-    if (choice.response !== 1) throw new Error('已取消卸载')
+    // The renderer confirms this destructive action with an in-app dialog.
     await store.uninstall(id)
   })
   handle(IPC_CHANNELS.openPath, async (target: unknown) => {
@@ -262,16 +207,7 @@ export function registerHandlers(
   )
   handle(IPC_CHANNELS.projectDelete, async (absPath: unknown) => {
     if (typeof absPath !== 'string') throw new Error('无效 Skill')
-    const skill = await projects.browse(absPath)
-    const choice = await dialog.showMessageBox(getWindow(), {
-      type: 'warning',
-      buttons: ['取消', '移入回收站'],
-      defaultId: 0,
-      cancelId: 0,
-      message: `从项目中删除 ${skill.skill.name}？`,
-      detail: `整个目录将移入应用回收站，包含手动修改过的文件。\n\n${skill.skill.path}\n\n需要恢复时，请从回收站还原。`,
-    })
-    if (choice.response !== 1) throw new Error('已取消删除')
+    // The renderer confirms this destructive action with an in-app dialog.
     await store.deleteExternalPath(absPath)
   })
   handleDirect(IPC_CHANNELS.getSettings, () => settings.load())

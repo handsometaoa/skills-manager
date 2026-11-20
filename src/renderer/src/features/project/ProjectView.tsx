@@ -9,6 +9,7 @@ import type {
   SkillDetail,
 } from '../../../../shared/types'
 import { cleanError } from '../../lib/errors'
+import { useConfirm } from '@/lib/confirm'
 import { Button } from '../../components/ui/button'
 import {
   Dialog,
@@ -37,6 +38,7 @@ const SUPPORTED_MATRIX = [
 ] as const
 
 export function ProjectView({ workspace }: { workspace: WorkspaceController }) {
+  const confirm = useConfirm()
   const activeProjectPath = workspace.activeProjectPath
   const [scan, setScan] = useState<ProjectScan | null>(null)
   const [busy, setBusy] = useState(false)
@@ -114,6 +116,17 @@ export function ProjectView({ workspace }: { workspace: WorkspaceController }) {
   }
 
   const removeSkill = async (skill: Skill) => {
+    const ok = await confirm({
+      title: `从项目中删除 ${skill.name}？`,
+      description: `整个目录将移入应用回收站，包括手动修改过的文件。
+
+${skill.path}
+
+需要恢复时，请从回收站还原。`,
+      confirmText: '确认移入回收站',
+      destructive: true,
+    })
+    if (!ok) return
     setBusy(true)
     try {
       await window.skills.projectDelete(skill.path)

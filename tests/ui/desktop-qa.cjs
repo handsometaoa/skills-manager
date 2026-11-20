@@ -490,6 +490,7 @@ app
     await screenshot('shared-skills')
     await openRowMenu()
     await click('移入回收站')
+    await click('确认移入回收站')
     await wait(
       "document.querySelectorAll('.skill-row').length >= 2 && !!document.querySelector('[data-sonner-toast][data-type=\"success\"]')",
     )
@@ -530,10 +531,12 @@ app
     )
     await openRowMenu()
     await click('移入回收站')
+    await click('确认移入回收站')
     await wait('!!document.querySelector(\'[data-sonner-toast][data-type="success"]\')')
     await evaluate("document.querySelector('.trash-nav').click()")
     await wait("document.querySelectorAll('.trash-row').length === 1")
     await click('永久删除')
+    await click('确认永久删除')
     await wait("document.querySelectorAll('.trash-row').length === 0")
     if (
       !invocations.some((i) => i.name === 'delete-external') ||
@@ -562,6 +565,7 @@ app
     await evaluate("document.querySelector('.nav-item').click()")
     await openRowMenu()
     await click('移出仓库')
+    await click('确认移出仓库')
     await wait('!!document.querySelector(\'[data-sonner-toast][data-type="success"]\')')
     await evaluate("document.querySelector('.trash-nav').click()")
     await wait("document.querySelectorAll('.trash-row').length === 1")
@@ -662,6 +666,7 @@ app
     await wait("document.querySelectorAll('.skill-row').length >= 1")
     await openRowMenu()
     await click('下发更新到工具')
+    await click('确认下发')
     await wait(
       "[...document.querySelectorAll('[data-sonner-toast]')].some(t => t.textContent.includes('已下发更新'))",
     )
