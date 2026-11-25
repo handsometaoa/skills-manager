@@ -1,5 +1,6 @@
 import type {
   Candidate,
+  DeployPlan,
   DeployResult,
   Compatibility,
   CreateSkillInput,
@@ -16,9 +17,13 @@ import type {
 export interface Api {
   createSkill(input: CreateSkillInput): Promise<Candidate>
   addToLibrary(paths: string[], compatibility: Compatibility): Promise<void>
-  /** Copies the current library content of a skill to every tool it was installed into. */
-  deployUpdate(id: string): Promise<DeployResult>
+  /** Previews linked copies and same-name copies that have no library association. */
+  prepareDeploy(id: string): Promise<DeployPlan>
+  /** Copies library content to linked copies and explicitly selected conflicts. */
+  deployUpdate(id: string, overwritePaths?: string[], onlyPaths?: string[]): Promise<DeployResult>
   collectSkill(id: string, compatibility: Compatibility): Promise<void>
+  /** Overwrites an associated library entry with the current Agent copy. */
+  syncToLibrary(id: string): Promise<void>
   setCompatibility(id: string, compatibility: Compatibility): Promise<void>
   installLibrary(ids: string[], toolIds: ToolId[]): Promise<void>
   deleteLibrary(id: string): Promise<void>
@@ -55,6 +60,10 @@ export interface Api {
   scanProject(projectPath: string): Promise<ProjectScan>
   /** Copies library skills into one of the project's Agent directories. */
   installToProject(input: ProjectInstallInput): Promise<void>
+  /** Collects a scanned project skill and associates its original directory. */
+  collectProjectSkill(absPath: string, compatibility: Compatibility): Promise<void>
+  /** Overwrites the associated library entry with a scanned project skill. */
+  projectSyncToLibrary(absPath: string): Promise<void>
   /** Reads/writes/deletes a skill that lives inside the scanned project. */
   projectBrowse(absPath: string): Promise<SkillDetail>
   projectReadFile(absPath: string, relativePath: string): Promise<string>

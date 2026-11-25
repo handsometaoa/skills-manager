@@ -57,6 +57,22 @@ test('recycling and restoring a modified managed Skill preserves all user change
   }
 })
 
+test('uninstall removes a stale installation record when its directory is already missing', async () => {
+  const f = await fixture()
+  try {
+    await f.store.install(f.source, ['claude'])
+    const record = f.store.findInstallByPath(path.join(f.store.tools[0].root, 'review'))!
+    await fs.rm(record.path, { recursive: true })
+    await f.store.uninstall(record.id)
+    assert.equal(f.store.findInstallById(record.id), undefined)
+    const reopened = new SkillStore(path.join(f.root, 'data'), path.join(f.root, 'home'))
+    await reopened.init()
+    assert.equal(reopened.findInstallById(record.id), undefined)
+  } finally {
+    await f.cleanup()
+  }
+})
+
 test('external skills cannot be uninstalled and malformed metadata is diagnosed', async () => {
   const f = await fixture()
   try {
@@ -236,17 +252,88 @@ test('tool-specific skills can be collected and enforce an editable compatibilit
     await fs.mkdir(path.dirname(external), { recursive: true })
     await fs.cp(f.source, external, { recursive: true })
     await f.store.collectSkill((await f.store.scan()).skills[0].id, ['zcode'])
-    const entry = (await f.store.scan()).library[0]
+    const snapshot = await f.store.scan()
+    const entry = snapshot.library[0]
+    assert.equal(snapshot.skills[0].libraryId, entry.id)
+    assert.equal(snapshot.skills[0].managed, true)
+    assert.equal(snapshot.skills[0].path, external)
     await assert.rejects(() => f.store.installLibrary([entry.id], ['codex']), /工具专用/)
     assert.equal((await f.store.scan()).skills.length, 1)
     await f.store.setCompatibility(entry.id, 'all')
-    await f.store.installLibrary([entry.id], ['codex'])
+    const reopened = new SkillStore(path.join(f.root, 'data'), path.join(f.root, 'home'))
+    await reopened.init()
+    assert.equal(
+      (await reopened.scan()).skills.find((s) => s.path === external)?.libraryId,
+      entry.id,
+    )
+    await reopened.installLibrary([entry.id], ['codex'])
     assert.ok(await fs.readFile(path.join(external, 'SKILL.md')))
     assert.equal((await f.store.scan()).skills.length, 2)
   } finally {
     await f.cleanup()
   }
 })
+test('an associated Agent copy can synchronize its full content back to the library', async () => {
+  const f = await fixture()
+  try {
+    const external = path.join(f.store.tools[0].root, 'review')
+    await fs.mkdir(path.dirname(external), { recursive: true })
+    await fs.cp(f.source, external, { recursive: true })
+    const agent = (await f.store.scan()).skills[0]
+    await f.store.collectSkill(agent.id, 'all')
+    const libraryId = (await f.store.scan()).library[0].id
+    await fs.writeFile(
+      path.join(external, 'SKILL.md'),
+      '---\nname: review\ndescription: Review from Agent\n---\n# Agent\n',
+    )
+    await fs.writeFile(path.join(external, 'agent.txt'), 'new file')
+    await f.store.syncToLibrary((await f.store.scan()).skills.find((s) => s.path === external)!.id)
+    const library = (await f.store.scan()).library[0]
+    assert.equal(library.id, libraryId)
+    assert.match(await f.store.readFile(libraryId, 'SKILL.md'), /Review from Agent/)
+    assert.equal(await f.store.readFile(libraryId, 'agent.txt'), 'new file')
+    assert.equal((await f.store.scan()).library.length, 1)
+  } finally {
+    await f.cleanup()
+  }
+})
+
+test('syncToLibrary restores the previous repository content when final verification fails', async () => {
+  const f = await fixture()
+  try {
+    const external = path.join(f.store.tools[0].root, 'review')
+    await fs.mkdir(path.dirname(external), { recursive: true })
+    await fs.cp(f.source, external, { recursive: true })
+    const agent = (await f.store.scan()).skills[0]
+    await f.store.collectSkill(agent.id, 'all')
+    const libraryId = (await f.store.scan()).library[0].id
+    await fs.writeFile(
+      path.join(external, 'SKILL.md'),
+      '---\nname: review\ndescription: Review from Agent\n---\n# Agent\n',
+    )
+    const mutable = f.store as unknown as {
+      hashes: (dir: string) => Promise<Record<string, string>>
+    }
+    const hashes = mutable.hashes.bind(f.store)
+    mutable.hashes = async (dir) => {
+      if (dir === (await f.store.scan()).library[0].path) throw new Error('模拟同步校验失败')
+      return hashes(dir)
+    }
+    const currentAgentId = (await f.store.scan()).skills.find((s) => s.path === external)!.id
+    await assert.rejects(() => f.store.syncToLibrary(currentAgentId), /模拟同步校验失败/)
+    mutable.hashes = hashes
+    assert.match(await f.store.readFile(libraryId, 'SKILL.md'), /Review changes carefully/)
+    assert.deepEqual(
+      (await fs.readdir(path.dirname((await f.store.scan()).library[0].path))).filter((name) =>
+        name.startsWith('.sync'),
+      ),
+      [],
+    )
+  } finally {
+    await f.cleanup()
+  }
+})
+
 test('batch library import and installation roll back on conflicts', async () => {
   const f = await fixture()
   try {

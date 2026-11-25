@@ -6,6 +6,9 @@ export interface RecordEntry {
   path: string
   source: string
   hashes: Record<string, string>
+  /** Identity captured at association time; legacy records may omit these. */
+  skillName?: string
+  metadataName?: string
   libraryId?: string
 }
 export interface LibraryEntry {

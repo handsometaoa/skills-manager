@@ -37,6 +37,8 @@ export function bootstrap(): void {
           const record = store.findInstallByPath(absPath)
           return record ? { managed: true, libraryId: record.libraryId } : { managed: false }
         },
+        (absPath, toolId, compatibility) => store.collectPath(absPath, compatibility, toolId),
+        (skill) => store.syncPathToLibrary(skill),
       )
       updater = new UpdaterService(() => {
         if (!mainWindow || mainWindow.isDestroyed()) throw new Error('应用窗口已关闭')

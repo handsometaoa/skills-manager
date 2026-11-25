@@ -6,9 +6,12 @@ const api: Api = {
   createSkill: (input) => ipcRenderer.invoke(IPC_CHANNELS.createSkill, input),
   addToLibrary: (paths, compatibility) =>
     ipcRenderer.invoke(IPC_CHANNELS.addToLibrary, paths, compatibility),
-  deployUpdate: (id) => ipcRenderer.invoke(IPC_CHANNELS.deployUpdate, id),
+  prepareDeploy: (id) => ipcRenderer.invoke(IPC_CHANNELS.prepareDeploy, id),
+  deployUpdate: (id, overwritePaths, onlyPaths) =>
+    ipcRenderer.invoke(IPC_CHANNELS.deployUpdate, id, overwritePaths, onlyPaths),
   collectSkill: (id, compatibility) =>
     ipcRenderer.invoke(IPC_CHANNELS.collectSkill, id, compatibility),
+  syncToLibrary: (id) => ipcRenderer.invoke(IPC_CHANNELS.syncToLibrary, id),
   setCompatibility: (id, compatibility) =>
     ipcRenderer.invoke(IPC_CHANNELS.setCompatibility, id, compatibility),
   installLibrary: (ids, toolIds) => ipcRenderer.invoke(IPC_CHANNELS.installLibrary, ids, toolIds),
@@ -51,6 +54,9 @@ const api: Api = {
   },
   scanProject: (projectPath) => ipcRenderer.invoke(IPC_CHANNELS.scanProject, projectPath),
   installToProject: (input) => ipcRenderer.invoke(IPC_CHANNELS.installToProject, input),
+  collectProjectSkill: (absPath, compatibility) =>
+    ipcRenderer.invoke(IPC_CHANNELS.collectProjectSkill, absPath, compatibility),
+  projectSyncToLibrary: (absPath) => ipcRenderer.invoke(IPC_CHANNELS.projectSyncToLibrary, absPath),
   projectBrowse: (absPath) => ipcRenderer.invoke(IPC_CHANNELS.projectBrowse, absPath),
   projectReadFile: (absPath, relativePath) =>
     ipcRenderer.invoke(IPC_CHANNELS.projectReadFile, absPath, relativePath),

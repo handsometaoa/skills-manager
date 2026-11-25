@@ -85,11 +85,29 @@ export interface ProjectInstallInput {
   toolId: ToolId
   projectPath: string
 }
+export interface DeployCopy {
+  path: string
+  toolId: ToolId
+  /** Every configured tool that can discover this physical directory. */
+  toolIds: ToolId[]
+}
+export interface DeployConflict extends DeployCopy {
+  managed: boolean
+  identical: boolean
+  overwritable: boolean
+}
+export interface DeployLinkedCopy extends DeployCopy {
+  status: 'current' | 'changed' | 'missing' | 'invalid'
+}
+export interface DeployPlan {
+  linked: DeployLinkedCopy[]
+  conflicts: DeployConflict[]
+}
 export interface DeployResult {
-  /** Tools whose installed copy was refreshed from the library. */
-  updated: ToolId[]
-  /** Tools skipped during deployment, with the reason. */
-  skipped: { toolId: ToolId; reason: string }[]
+  /** Physical copies refreshed from the library. */
+  updated: DeployCopy[]
+  /** Physical copies skipped during deployment, with the reason. */
+  skipped: (DeployCopy & { reason: string })[]
 }
 /** Auto-update state surfaced to the renderer. */
 export interface UpdateStatus {

@@ -1,4 +1,10 @@
-import { assertCompatibility, assertProjectSources, assertToolIds } from './validation'
+import {
+  assertCompatibility,
+  assertOverwritePaths,
+  assertPaths,
+  assertProjectSources,
+  assertToolIds,
+} from './validation'
 import { dialog, ipcMain, nativeTheme, shell, type BrowserWindow } from 'electron'
 import { SkillStore } from '../services/skill-service'
 import { SourceService } from '../services/source-service'
@@ -68,14 +74,27 @@ export function registerHandlers(
       compatibility,
     )
   })
-  handle(IPC_CHANNELS.deployUpdate, async (id: unknown) => {
+  handle(IPC_CHANNELS.prepareDeploy, async (id: unknown) => {
     if (typeof id !== 'string') throw new Error('无效 Skill')
-    return store.deployUpdate(id)
+    return store.prepareDeploy(id)
   })
+  handle(
+    IPC_CHANNELS.deployUpdate,
+    async (id: unknown, overwritePaths: unknown = [], onlyPaths: unknown) => {
+      if (typeof id !== 'string') throw new Error('无效 Skill')
+      assertOverwritePaths(overwritePaths)
+      if (onlyPaths !== undefined) assertPaths(onlyPaths, '无效的下发目标')
+      return store.deployUpdate(id, overwritePaths, onlyPaths)
+    },
+  )
   handle(IPC_CHANNELS.collectSkill, async (id: unknown, compatibility: unknown) => {
     if (typeof id !== 'string') throw new Error('无效 Skill')
     assertCompatibility(compatibility)
     await store.collectSkill(id, compatibility)
+  })
+  handle(IPC_CHANNELS.syncToLibrary, async (id: unknown) => {
+    if (typeof id !== 'string') throw new Error('无效 Skill')
+    await store.syncToLibrary(id)
   })
   handle(IPC_CHANNELS.setCompatibility, async (id: unknown, compatibility: unknown) => {
     if (typeof id !== 'string') throw new Error('无效 Skill')
@@ -151,8 +170,7 @@ export function registerHandlers(
   })
   handle(IPC_CHANNELS.uninstall, async (id: unknown) => {
     if (typeof id !== 'string') throw new Error('无效 Skill')
-    const skill = (await store.scan()).skills.find((s) => s.id === id && s.managed)
-    if (!skill) throw new Error('未找到可卸载的 Skill')
+    if (!store.findInstallById(id)) throw new Error('未找到可卸载的 Skill')
     // The renderer confirms this destructive action with an in-app dialog.
     await store.uninstall(id)
   })
@@ -195,6 +213,15 @@ export function registerHandlers(
       projectSources[0],
     )
     return created
+  })
+  handle(IPC_CHANNELS.collectProjectSkill, async (absPath: unknown, compatibility: unknown) => {
+    if (typeof absPath !== 'string') throw new Error('无效 Skill')
+    assertCompatibility(compatibility)
+    await projects.collectSkill(absPath, compatibility)
+  })
+  handle(IPC_CHANNELS.projectSyncToLibrary, async (absPath: unknown) => {
+    if (typeof absPath !== 'string') throw new Error('无效 Skill')
+    await projects.syncToLibrary(absPath)
   })
   handle(IPC_CHANNELS.projectBrowse, (absPath: unknown) => projects.browse(absPath))
   handle(IPC_CHANNELS.projectReadFile, (absPath: unknown, relativePath: unknown) =>

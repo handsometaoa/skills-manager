@@ -143,6 +143,7 @@ app
         compatibility,
         source: item.path,
       })
+      Object.assign(item, { managed: true, libraryId: 'collected' })
     })
     handler('pick-local', () => [
       {
@@ -152,7 +153,34 @@ app
         warnings: [],
       },
     ])
-    handler('library-deploy', () => ({ updated: ['claude'], skipped: [] }))
+    handler('library-deploy-prepare', (id) => ({
+      linked: skills
+        .filter((s) => s.libraryId === id)
+        .map((s) => ({
+          path: s.path,
+          toolId: s.toolId,
+          toolIds: [s.toolId],
+          status: 'changed',
+        })),
+      conflicts:
+        id === 'library-0'
+          ? [
+              {
+                path: 'C:/Users/demo/.zcode/skills/code-review',
+                toolId: 'zcode',
+                toolIds: ['zcode'],
+                managed: false,
+                identical: false,
+                overwritable: true,
+              },
+            ]
+          : [],
+    }))
+    handler('library-deploy', () => ({
+      updated: [{ path: 'C:/demo/claude', toolId: 'claude', toolIds: ['claude'] }],
+      skipped: [],
+    }))
+    handler('library-sync-from-agent', () => {})
     handler('library-add', (_paths, compatibility) =>
       library.push({ ...library[0], id: 'imported', name: 'local-skill', compatibility }),
     )
@@ -262,6 +290,18 @@ app
       })),
       diagnostics: [],
     }
+    handler('project-collect', (absPath, compatibility) => {
+      const item = projectScan.tools.flatMap((t) => t.skills).find((s) => s.path === absPath)
+      library.push({
+        ...item,
+        id: 'project-collected',
+        toolId: 'library',
+        compatibility,
+        source: item.path,
+      })
+      Object.assign(item, { managed: true, libraryId: 'project-collected' })
+    })
+    handler('project-sync-to-library', () => {})
     handler('project-scan', () => JSON.parse(JSON.stringify(projectScan)))
     handler('project-browse', (p) => ({
       skill: projectScan.tools.flatMap((t) => t.skills).find((s) => s.path === p),
@@ -311,7 +351,11 @@ app
     const wait = async (code) => {
       const deadline = Date.now() + 6000
       while (!(await evaluate(code))) {
-        if (Date.now() > deadline) throw new Error('Timeout: ' + code)
+        if (Date.now() > deadline) {
+          console.error('TIMEOUT BODY', await evaluate('document.body.innerText.slice(-3000)'))
+          console.error('RECENT IPC', invocations.slice(-10))
+          throw new Error('Timeout: ' + code)
+        }
         await new Promise((resolve) => setTimeout(resolve, 80))
       }
     }
@@ -431,6 +475,17 @@ app
     await wait('!document.querySelector(\'[data-slot="sheet-content"]\')')
     if (!library.some((s) => s.name === 'project-context' && s.compatibility.includes('zcode')))
       throw new Error('Collection failed')
+    if (!skills.find((s) => s.id === 'external-zcode')?.libraryId)
+      throw new Error('Collection did not associate the original Agent copy')
+    await openRowMenu()
+    await click('同步到主仓库')
+    await wait("document.body.textContent.includes('确认同步')")
+    await click('确认同步')
+    await wait(
+      "[...document.querySelectorAll('[data-sonner-toast]')].some(t => t.textContent.includes('已同步到主仓库'))",
+    )
+    if (!invocations.some((i) => i.name === 'library-sync-from-agent'))
+      throw new Error('Agent sync IPC failed')
     await evaluate("document.querySelector('.nav-item').click()")
     await click('添加 Skill')
     await screenshot('import-redesign')
@@ -539,7 +594,8 @@ app
     await click('确认永久删除')
     await wait("document.querySelectorAll('.trash-row').length === 0")
     if (
-      !invocations.some((i) => i.name === 'delete-external') ||
+      (!invocations.some((i) => i.name === 'delete-external') &&
+        !invocations.some((i) => i.name === 'uninstall')) ||
       !invocations.some((i) => i.name === 'trash-delete')
     )
       throw new Error('External / permanent deletion IPC failed')
@@ -635,8 +691,16 @@ app
     await wait(
       "[...document.querySelectorAll('[data-sonner-toast]')].some(t => t.textContent.includes('已收入中央仓库'))",
     )
-    if (!invocations.some((i) => i.name === 'library-add'))
+    if (!invocations.some((i) => i.name === 'project-collect'))
       throw new Error('Project collect IPC failed')
+    await click('同步到主仓库')
+    await wait("document.body.textContent.includes('确认同步')")
+    await click('确认同步')
+    await wait(
+      "[...document.querySelectorAll('[data-sonner-toast]')].some(t => t.textContent.includes('已同步到主仓库'))",
+    )
+    if (!invocations.some((i) => i.name === 'project-sync-to-library'))
+      throw new Error('Project sync IPC failed')
     await click('从仓库安装')
     await wait('!!document.querySelector(\'[aria-label="安装到 Claude Code"]\')')
     await evaluate('document.querySelector(\'[aria-label="选择 code-review"]\').click()')
@@ -647,6 +711,13 @@ app
     )
     if (!invocations.some((i) => i.name === 'project-install'))
       throw new Error('Project install IPC failed')
+    await click('从仓库更新')
+    await wait(
+      "[...document.querySelectorAll('[data-sonner-toast]')].some(t => t.textContent.includes('已从仓库更新'))",
+    )
+    const projectDeploy = invocations.find((i) => i.name === 'library-deploy')
+    if (projectDeploy.args[2]?.[0] !== 'C:/demo-project/.claude/skills/qa-project-skill')
+      throw new Error('Project update was not scoped to the selected copy')
     // 项目持久化：侧边栏保留项目入口；移除后消失
     if (
       !(await evaluate(
@@ -655,6 +726,8 @@ app
     )
       throw new Error('Registered project missing from sidebar')
     await click('移除项目')
+    await wait("document.body.textContent.includes('确认移除')")
+    await click('确认移除')
     await wait("document.querySelector('main').textContent.includes('管理项目级 Skill')")
     await wait(
       "[...document.querySelectorAll('.nav-item')].every(b => !b.textContent.includes('demo-project'))",
@@ -664,13 +737,22 @@ app
       "[...document.querySelectorAll('.nav-item')].find(b => b.textContent.includes('中央仓库')).click()",
     )
     await wait("document.querySelectorAll('.skill-row').length >= 1")
-    await openRowMenu()
+    await evaluate(
+      `(() => { const row = [...document.querySelectorAll('.skill-row')].find(r => r.textContent.includes('code-review')); const b = row.querySelector('[aria-label$="更多操作"]'); b.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, pointerId: 1, button: 0 })); b.click() })()`,
+    )
     await click('下发更新到工具')
+    await wait("document.body.textContent.includes('同名副本处理')")
+    await evaluate(
+      `(() => { const radio = [...document.querySelectorAll('[role="radio"]')].find(r => r.value === 'overwrite'); radio.click() })()`,
+    )
     await click('确认下发')
     await wait(
       "[...document.querySelectorAll('[data-sonner-toast]')].some(t => t.textContent.includes('已下发更新'))",
     )
     if (!invocations.some((i) => i.name === 'library-deploy')) throw new Error('Deploy IPC failed')
+    const deploy = invocations.findLast((i) => i.name === 'library-deploy')
+    if (deploy.args[1]?.[0] !== 'C:/Users/demo/.zcode/skills/code-review')
+      throw new Error('Conflict overwrite selection missing')
     // Settings page: theme radio, library location, agent scan directories
     await evaluate(
       "[...document.querySelectorAll('.nav-item')].find(b => b.textContent.includes('设置')).click()",

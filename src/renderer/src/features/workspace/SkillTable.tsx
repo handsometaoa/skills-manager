@@ -1,10 +1,13 @@
+import { useState } from 'react'
 import { FileText, FolderOpen, Download, Plus, Library } from 'lucide-react'
+import type { DeployPlan, Skill } from '../../../../shared/types'
+import { DeployDialog } from '../library/DeployDialog'
+import { discoveredBy } from '../../../../shared/compatibility'
 import { Button } from '../../components/ui/button'
 import { Checkbox } from '../../components/ui/checkbox'
 import { Skeleton } from '../../components/ui/skeleton'
 import { SkillRow } from '../skills/SkillRow'
 import { useConfirm } from '@/lib/confirm'
-import { discoveredBy } from '../../../../shared/compatibility'
 import type { WorkspaceController } from './useWorkspace'
 
 const GRID = 'grid grid-cols-[minmax(0,1fr)_180px_220px_210px] items-center gap-3 px-3 py-2.5'
@@ -21,7 +24,6 @@ export function SkillTable({ workspace }: { workspace: WorkspaceController }) {
     selected,
     setSelected,
     setMessage,
-    installed,
     refresh,
     run,
     navigate,
@@ -37,6 +39,18 @@ export function SkillTable({ workspace }: { workspace: WorkspaceController }) {
     installCurrent,
   } = workspace
   const confirm = useConfirm()
+  const [deploying, setDeploying] = useState<{ skill: Skill; plan: DeployPlan } | null>(null)
+  const deploy = (skill: Skill, overwritePaths: string[]) =>
+    void run(async () => {
+      const result = await window.skills.deployUpdate(skill.id, overwritePaths)
+      await refresh()
+      setDeploying(null)
+      setMessage({
+        text: `已下发更新：${result.updated.length} 个副本${
+          result.skipped.length ? `（跳过 ${result.skipped.length} 个）` : ''
+        }`,
+      })
+    })
   return (
     <section
       className="skill-table overflow-hidden rounded-xl border bg-card"
@@ -117,29 +131,23 @@ export function SkillTable({ workspace }: { workspace: WorkspaceController }) {
                 setInstalling([skill])
               }}
               deploy={() =>
+                void run(async () => {
+                  setDeploying({ skill, plan: await window.skills.prepareDeploy(skill.id) })
+                })
+              }
+              sync={() =>
                 void (async () => {
-                  const affected = data.tools
-                    .filter((t) =>
-                      installed.some((i) => i.libraryId === skill.id && discoveredBy(i, t.id)),
-                    )
-                    .map((t) => t.name)
-                    .join('、')
                   const ok = await confirm({
-                    title: `下发更新：${skill.name}？`,
-                    description: `仓库当前版本将复制到所有安装过此 Skill 的工具目录（${affected}），覆盖这些副本中的本地修改。内容已同步的副本会自动跳过。`,
-                    confirmText: '确认下发',
+                    title: `同步到主仓库：${skill.name}？`,
+                    description: `将用此 Agent 副本的当前内容覆盖主仓库中的旧版本，包括文件新增、修改和删除。其他 Agent 副本不会自动更新。\n\n${skill.path}`,
+                    confirmText: '确认同步',
                     destructive: true,
                   })
                   if (!ok) return
                   await run(async () => {
-                    const result = await window.skills.deployUpdate(skill.id)
+                    await window.skills.syncToLibrary(skill.id)
                     await refresh()
-                    setMessage({
-                      text: `已下发更新：${result.updated.length} 个工具${
-                        result.skipped.length ? `（跳过 ${result.skipped.length} 个）` : ''
-                      }`,
-                    })
-                  })
+                  }, '已同步到主仓库；可继续下发更新到其他工具。')
                 })()
               }
               compatibility={(value) =>
@@ -184,7 +192,18 @@ export function SkillTable({ workspace }: { workspace: WorkspaceController }) {
             />
           ))}
         </div>
-      ) : (
+      ) : null}
+      {deploying && (
+        <DeployDialog
+          skill={deploying.skill}
+          plan={deploying.plan}
+          tools={data.tools}
+          busy={busy}
+          onClose={() => setDeploying(null)}
+          onConfirm={(paths) => deploy(deploying.skill, paths)}
+        />
+      )}
+      {!initial && !items.length && (
         <div className="empty-state flex flex-col items-center gap-3 px-6 py-16 text-center">
           <span className="bg-muted text-muted-foreground flex size-12 items-center justify-center rounded-xl">
             {isLibrary ? (

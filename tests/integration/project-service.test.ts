@@ -29,6 +29,8 @@ async function fixture() {
       const record = store.findInstallByPath(absPath)
       return record ? { managed: true, libraryId: record.libraryId } : { managed: false }
     },
+    (absPath, toolId, compatibility) => store.collectPath(absPath, compatibility, toolId),
+    (skill) => store.syncPathToLibrary(skill),
   )
   return {
     root,
@@ -91,18 +93,28 @@ test('browse, read and write work within the project and reject escapes', async 
   }
 })
 
-test('collect moves a project skill into the library and blocks duplicates', async () => {
+test('project collection associates the original and project changes sync back to the library', async () => {
   const f = await fixture()
   try {
     const scan = await f.projects.scan(f.project)
     const skillPath = scan.tools.find((t) => t.toolId === 'claude')!.skills[0].path
-    await f.store.addToLibrary([{ path: skillPath, source: skillPath }], 'all')
+    await f.projects.collectSkill(skillPath, 'all')
     const library = (await f.store.scan()).library
     assert.equal(library.length, 1)
-    await assert.rejects(
-      () => f.store.addToLibrary([{ path: skillPath, source: skillPath }], ['zcode']),
-      /已有同名 Skill/,
+    assert.equal(f.store.findInstallByPath(skillPath)?.libraryId, library[0].id)
+    assert.equal((await f.projects.scan(f.project)).tools[0].skills[0].libraryId, library[0].id)
+    await assert.rejects(() => f.projects.collectSkill(skillPath, ['zcode']), /已有同名 Skill/)
+    await fs.writeFile(
+      path.join(skillPath, 'SKILL.md'),
+      '---\nname: review\ndescription: Review from project\n---\n# Project\n',
     )
+    await fs.writeFile(path.join(skillPath, 'project.txt'), 'project changes')
+    await f.projects.syncToLibrary(skillPath)
+    assert.match(await f.store.readFile(library[0].id, 'SKILL.md'), /Review from project/)
+    assert.equal(await f.store.readFile(library[0].id, 'project.txt'), 'project changes')
+    const reopened = new SkillStore(path.join(f.root, 'data'), path.join(f.root, 'home'))
+    await reopened.init()
+    assert.equal(reopened.findInstallByPath(skillPath)?.libraryId, library[0].id)
   } finally {
     await f.cleanup()
   }

@@ -13,6 +13,10 @@ import type {
   Candidate,
   Compatibility,
   CreateSkillInput,
+  DeployCopy,
+  DeployConflict,
+  DeployLinkedCopy,
+  DeployPlan,
   DeployResult,
   Settings,
   Skill,
@@ -186,6 +190,7 @@ export class SkillStore {
         await fs.rm(path.dirname(this.libraryPath(item)), { recursive: true, force: true })
       throw e
     }
+    return added
   }
   /**
    * Creates a ready-to-edit Skill scaffold from the built-in template, either
@@ -247,7 +252,84 @@ export class SkillStore {
   }
   async collectSkill(id: string, compatibility: Compatibility) {
     const candidate = await this.prepareCopy(id)
-    await this.addToLibrary([{ path: candidate.path, source: candidate.path }], compatibility)
+    await this.collectPath(candidate.path, compatibility)
+  }
+  /** Collects a known Agent directory and links that original copy to the new entry. */
+  async collectPath(sourcePath: string, compatibility: Compatibility, ownerToolId?: ToolId) {
+    await this.inspect(sourcePath)
+    if ((await fs.lstat(sourcePath)).isSymbolicLink()) throw new Error('请导入 Skill 的真实目录')
+    const snapshot = await this.scan()
+    const discovered = snapshot.skills.find((s) => s.path === path.resolve(sourcePath))
+    const directoryOwner = this.tools.find(
+      (tool) => tool.root === path.dirname(path.resolve(sourcePath)),
+    )?.id
+    const toolId =
+      ownerToolId ??
+      discovered?.installedBy ??
+      directoryOwner ??
+      discovered?.discoveredBy?.[0] ??
+      discovered?.toolId
+    if (!toolId || toolId === 'library') throw new Error('未找到 Skill 所属工具')
+    const [entry] = await this.addToLibrary(
+      [{ path: sourcePath, source: sourcePath }],
+      compatibility,
+    )
+    try {
+      await this.associate(sourcePath, toolId, entry.id)
+    } catch (error) {
+      this.library = this.library.filter((item) => item.id !== entry.id)
+      try {
+        // Remove persisted metadata first. If this fails, keep the library
+        // copy so disk metadata can never point at a directory we just deleted.
+        await this.saveLibrary()
+      } catch (rollbackError) {
+        this.library.push(entry)
+        throw rollbackError
+      }
+      await fs
+        .rm(path.dirname(this.libraryPath(entry)), { recursive: true, force: true })
+        .catch(() => {})
+      throw error
+    }
+  }
+  private async associate(absPath: string, toolId: ToolId, libraryId: string) {
+    const resolved = path.resolve(absPath)
+    const candidate = await this.inspect(resolved)
+    const hashes = await this.hashes(resolved)
+    const existing = this.records.find((r) => r.path === resolved)
+    if (existing) {
+      const previous = { ...existing }
+      Object.assign(existing, {
+        toolId,
+        libraryId,
+        hashes,
+        skillName: candidate.name,
+        metadataName: candidate.metadataName,
+      })
+      try {
+        await this.save()
+      } catch (error) {
+        Object.assign(existing, previous)
+        throw error
+      }
+      return
+    }
+    this.records.push({
+      id: randomUUID(),
+      toolId,
+      path: resolved,
+      source: resolved,
+      hashes,
+      skillName: candidate.name,
+      metadataName: candidate.metadataName,
+      libraryId,
+    })
+    try {
+      await this.save()
+    } catch (error) {
+      this.records = this.records.filter((r) => r.path !== resolved)
+      throw error
+    }
   }
   async setCompatibility(id: string, compatibility: Compatibility) {
     compatibility = normalizeCompatibility(compatibility)
@@ -425,6 +507,8 @@ export class SkillStore {
           path: dest,
           source: provenance,
           hashes,
+          skillName: candidate.name,
+          metadataName: candidate.metadataName,
           libraryId,
         })
         for (const file of await fs.readdir(stage))
@@ -456,78 +540,280 @@ export class SkillStore {
       if (candidate.description.length > 1024) throw new Error('OpenCode 描述不能超过 1024 字符')
     }
   }
-  /**
-   * One-click redeployment: copies the current library content of a skill to
-   * every tool directory it was installed into, overwriting local changes.
-   * Targets whose content already matches are skipped; a mid-batch failure
-   * restores the previous copies.
-   */
-  async deployUpdate(id: string): Promise<DeployResult> {
+  private copyIdentity(skill: Skill): DeployCopy {
+    const toolId = skill.installedBy ?? (skill.toolId === 'library' ? 'claude' : skill.toolId)
+    const toolIds = skill.discoveredBy?.length ? skill.discoveredBy : [toolId]
+    return { path: skill.path, toolId, toolIds }
+  }
+  /** Previews linked copies and unassociated same-name copies before deployment. */
+  async prepareDeploy(id: string): Promise<DeployPlan> {
     const entry = this.library.find((e) => e.id === id)
     if (!entry) throw new Error('仓库 Skill 已不存在，请刷新列表')
+    const sourceHashes = await this.hashes(this.libraryPath(entry))
+    const snapshot = await this.scan()
+    const linkedRecords = this.records.filter((r) => r.libraryId === id)
+    const linked: DeployLinkedCopy[] = []
+    for (const record of linkedRecords) {
+      const skill = snapshot.skills.find((s) => s.path === record.path)
+      const identity = skill
+        ? this.copyIdentity(skill)
+        : { path: record.path, toolId: record.toolId, toolIds: [record.toolId] }
+      let status: DeployLinkedCopy['status'] = 'missing'
+      try {
+        const stat = await fs.lstat(record.path)
+        if (!stat.isDirectory() || stat.isSymbolicLink()) {
+          status = 'invalid'
+        } else {
+          try {
+            const target = await this.inspect(record.path)
+            if (
+              target.name.toLowerCase() !== (record.skillName ?? entry.name).toLowerCase() ||
+              (record.metadataName !== undefined &&
+                target.metadataName?.toLowerCase() !== record.metadataName.toLowerCase())
+            ) {
+              status = 'invalid'
+            } else {
+              const hashes = await this.hashes(record.path)
+              status =
+                JSON.stringify(hashes) === JSON.stringify(sourceHashes) ? 'current' : 'changed'
+            }
+          } catch {
+            status = 'invalid'
+          }
+        }
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== 'ENOENT') status = 'invalid'
+      }
+      linked.push({ ...identity, status })
+    }
+    const linkedPaths = new Set(linkedRecords.map((r) => r.path))
+    const conflicts: DeployConflict[] = []
+    for (const skill of snapshot.skills) {
+      if (
+        linkedPaths.has(skill.path) ||
+        skill.libraryId === id ||
+        skill.name.toLowerCase() !== entry.name.toLowerCase()
+      )
+        continue
+      let identical = false
+      if (!skill.linked) {
+        try {
+          identical = JSON.stringify(await this.hashes(skill.path)) === JSON.stringify(sourceHashes)
+        } catch {
+          identical = false
+        }
+      }
+      conflicts.push({
+        ...this.copyIdentity(skill),
+        managed: skill.managed,
+        identical,
+        overwritable: !skill.linked,
+      })
+    }
+    return { linked, conflicts }
+  }
+  /**
+   * One-click redeployment: linked copies are always refreshed. Unassociated
+   * same-name copies are skipped unless their exact scanned path is selected.
+   */
+  async deployUpdate(
+    id: string,
+    overwritePaths: string[] = [],
+    onlyPaths?: string[],
+  ): Promise<DeployResult> {
+    const entry = this.library.find((e) => e.id === id)
+    if (!entry) throw new Error('仓库 Skill 已不存在，请刷新列表')
+    if (
+      !Array.isArray(overwritePaths) ||
+      overwritePaths.some((p) => typeof p !== 'string') ||
+      new Set(overwritePaths).size !== overwritePaths.length
+    )
+      throw new Error('无效的覆盖目标')
+    if (
+      onlyPaths !== undefined &&
+      (!Array.isArray(onlyPaths) ||
+        !onlyPaths.length ||
+        onlyPaths.some((p) => typeof p !== 'string' || !p.trim()) ||
+        new Set(onlyPaths).size !== onlyPaths.length)
+    )
+      throw new Error('无效的下发目标')
+    if (onlyPaths && overwritePaths.length) throw new Error('单副本下发不能同时覆盖其他目标')
+    const plan = await this.prepareDeploy(id)
+    if (onlyPaths) {
+      const linkedPaths = new Set(plan.linked.map((c) => c.path))
+      if (onlyPaths.some((p) => !linkedPaths.has(p)))
+        throw new Error('下发目标已变更，请刷新后重试')
+      plan.linked = plan.linked.filter((copy) => onlyPaths.includes(copy.path))
+      plan.conflicts = []
+    }
+    const conflictPaths = new Set(
+      plan.conflicts.filter((copy) => copy.overwritable).map((c) => c.path),
+    )
+    if (overwritePaths.some((p) => !conflictPaths.has(p)))
+      throw new Error('覆盖目标已变更或不可覆盖，请刷新后重试')
+    const selected = plan.conflicts.filter((c) => overwritePaths.includes(c.path))
+    if (!plan.linked.length && !plan.conflicts.length)
+      throw new Error('该 Skill 尚未安装到任何工具，请先从仓库安装')
     const source = this.libraryPath(entry)
     const sourceHashes = await this.hashes(source)
     const candidate = await this.inspect(source)
-    const linked = this.records.filter((r) => r.libraryId === id)
-    if (!linked.length) throw new Error('该 Skill 尚未安装到任何工具，请先从仓库安装')
-    this.assertToolFormat(
-      candidate,
-      linked.map((r) => r.toolId),
+    this.assertToolFormat(candidate, [
+      ...new Set([
+        ...plan.linked
+          .filter((c) => c.status === 'current' || c.status === 'changed')
+          .map((c) => c.toolId),
+        ...selected.flatMap((c) => c.toolIds),
+      ]),
+    ])
+    const linked = this.records.filter(
+      (r) => r.libraryId === id && (!onlyPaths || onlyPaths.includes(r.path)),
     )
-
-    const previousHashes = linked.map((r) => r.hashes)
-    const updated: ToolId[] = []
-    const skipped: DeployResult['skipped'] = []
+    const previousRecords = this.records.map((r) => ({ ...r, hashes: { ...r.hashes } }))
+    const updated: DeployCopy[] = []
+    const skipped: DeployResult['skipped'] = plan.conflicts
+      .filter((copy) => !overwritePaths.includes(copy.path))
+      .map((copy) => ({ ...copy, reason: '未关联主仓库，已跳过' }))
     const backups: { from: string; to: string }[] = []
     const created: string[] = []
+    const stages: string[] = []
+    const targets: { copy: DeployCopy; record?: (typeof linked)[number] }[] = [
+      ...plan.linked.map((copy) => ({
+        copy,
+        record: linked.find((r) => r.path === copy.path),
+      })),
+      ...selected.map((copy) => ({ copy, record: this.records.find((r) => r.path === copy.path) })),
+    ]
     try {
-      for (const record of linked) {
-        let exists = true
-        try {
-          exists = (await fs.lstat(record.path)).isDirectory()
-        } catch {
-          exists = false
-        }
-        if (!exists) {
-          skipped.push({ toolId: record.toolId, reason: '目标目录已不存在，请先清理该安装记录' })
+      for (const { copy, record } of targets) {
+        const linkedStatus = plan.linked.find((c) => c.path === copy.path)?.status
+        if (linkedStatus === 'missing' || linkedStatus === 'invalid') {
+          skipped.push({
+            ...copy,
+            reason:
+              linkedStatus === 'missing'
+                ? '目标目录已不存在，请先清理该安装记录'
+                : '目标路径已不再是对应 Skill，停止覆盖',
+          })
           continue
         }
-        let targetHashes: Record<string, string> | null = null
-        try {
-          targetHashes = await this.hashes(record.path)
-        } catch {
-          targetHashes = null
+        if ((await fs.lstat(copy.path)).isSymbolicLink()) {
+          if (record) {
+            skipped.push({ ...copy, reason: '目标已变为链接，停止覆盖' })
+            continue
+          }
+          throw new Error(`目标已变为链接，停止覆盖：${copy.path}`)
         }
-        if (targetHashes && JSON.stringify(targetHashes) === JSON.stringify(sourceHashes)) {
-          skipped.push({ toolId: record.toolId, reason: '内容已是最新' })
+        const target = await this.inspect(copy.path)
+        if (
+          target.name.toLowerCase() !== (record?.skillName ?? entry.name).toLowerCase() ||
+          (record?.metadataName !== undefined &&
+            target.metadataName?.toLowerCase() !== record.metadataName.toLowerCase())
+        )
+          throw new Error(`目标路径已变为其他 Skill，停止覆盖：${copy.path}`)
+        const targetHashes = await this.hashes(copy.path)
+        if (JSON.stringify(targetHashes) === JSON.stringify(sourceHashes)) {
+          if (record) {
+            record.hashes = targetHashes
+            record.libraryId = id
+          } else {
+            this.records.push({
+              id: randomUUID(),
+              toolId: copy.toolId,
+              path: copy.path,
+              source: entry.source,
+              hashes: targetHashes,
+              skillName: target.name,
+              metadataName: target.metadataName,
+              libraryId: id,
+            })
+          }
+          skipped.push({ ...copy, reason: '内容已是最新' })
           continue
         }
-        const stage = path.join(path.dirname(record.path), `.deploy-${randomUUID()}`)
+        const stage = path.join(path.dirname(copy.path), `.deploy-${randomUUID()}`)
+        stages.push(stage)
         await fs.cp(source, stage, { recursive: true, dereference: false })
-        const backup = path.join(path.dirname(record.path), `.deploy-backup-${randomUUID()}`)
-        await fs.rename(record.path, backup)
-        backups.push({ from: record.path, to: backup })
-        await fs.rename(stage, record.path)
-        created.push(record.path)
-        record.hashes = await this.hashes(record.path)
-        updated.push(record.toolId)
+        const backup = path.join(path.dirname(copy.path), `.deploy-backup-${randomUUID()}`)
+        await fs.rename(copy.path, backup)
+        backups.push({ from: copy.path, to: backup })
+        await fs.rename(stage, copy.path)
+        created.push(copy.path)
+        const hashes = await this.hashes(copy.path)
+        if (record) {
+          record.hashes = hashes
+          record.libraryId = id
+        } else {
+          this.records.push({
+            id: randomUUID(),
+            toolId: copy.toolId,
+            path: copy.path,
+            source: entry.source,
+            hashes,
+            skillName: candidate.name,
+            metadataName: candidate.metadataName,
+            libraryId: id,
+          })
+        }
+        updated.push(copy)
       }
       await this.save()
     } catch (e) {
-      linked.forEach((record, index) => {
-        record.hashes = previousHashes[index]
-      })
-      for (const backup of backups) {
-        await fs.rm(backup.from, { recursive: true, force: true }).catch(() => {})
-        await fs.rename(backup.to, backup.from).catch(() => {})
-      }
+      this.records = previousRecords
+      // Every replaced path has a backup. Remove the new content first, then
+      // restore the old directory; never delete a path after restoring it.
       for (const createdPath of created)
         await fs.rm(createdPath, { recursive: true, force: true }).catch(() => {})
+      for (const backup of backups) await fs.rename(backup.to, backup.from).catch(() => {})
       throw e
+    } finally {
+      for (const stage of stages)
+        await fs.rm(stage, { recursive: true, force: true }).catch(() => {})
     }
     for (const backup of backups)
       await fs.rm(backup.to, { recursive: true, force: true }).catch(() => {})
     return { updated, skipped }
+  }
+  /** Replaces an associated library entry with the current content of an Agent copy. */
+  async syncToLibrary(id: string): Promise<void> {
+    const skill = (await this.scan()).skills.find((s) => s.id === id)
+    if (!skill) throw new Error('Skill 已不存在，请刷新列表')
+    await this.syncPathToLibrary(skill)
+  }
+  async syncPathToLibrary(skill: Skill): Promise<void> {
+    if (!skill.libraryId) throw new Error('该 Skill 尚未关联主仓库，请先收录')
+    if (skill.linked || (await fs.lstat(skill.path)).isSymbolicLink())
+      throw new Error('暂不同步链接目录，请通过本地导入选择真实目录')
+    const entry = this.library.find((e) => e.id === skill.libraryId)
+    if (!entry) throw new Error('关联的仓库 Skill 已不存在')
+    const candidate = await this.inspect(skill.path)
+    if (candidate.name !== entry.name) throw new Error('Skill 名称已变更，无法同步到原仓库条目')
+    const sourceHashes = await this.hashes(skill.path)
+    const destination = this.libraryPath(entry)
+    const stage = path.join(path.dirname(destination), `.sync-${randomUUID()}`)
+    const backup = path.join(path.dirname(destination), `.sync-backup-${randomUUID()}`)
+    let moved = false
+    try {
+      await fs.cp(skill.path, stage, { recursive: true, dereference: false })
+      const copiedHashes = await this.hashes(stage)
+      if (JSON.stringify(copiedHashes) !== JSON.stringify(sourceHashes))
+        throw new Error('同步内容校验失败，仓库未修改')
+      await fs.rename(destination, backup)
+      moved = true
+      await fs.rename(stage, destination)
+      if (JSON.stringify(await this.hashes(destination)) !== JSON.stringify(sourceHashes))
+        throw new Error('同步内容校验失败')
+    } catch (error) {
+      if (moved) {
+        await fs.rm(destination, { recursive: true, force: true }).catch(() => {})
+        await fs.rename(backup, destination).catch(() => {})
+      }
+      throw error
+    } finally {
+      await fs.rm(stage, { recursive: true, force: true }).catch(() => {})
+    }
+    // Cleanup failure must not turn a committed sync into a reported failure
+    // and trigger restoration from a potentially incomplete backup.
+    await fs.rm(backup, { recursive: true, force: true }).catch(() => {})
   }
   private async findSkill(id: string) {
     const snapshot = await this.scan()
@@ -567,17 +853,23 @@ export class SkillStore {
   findInstallByPath(absPath: string) {
     return this.records.find((r) => r.path === path.resolve(absPath))
   }
+  findInstallById(id: string) {
+    return this.records.find((r) => r.id === id)
+  }
   async recordInstall(
     entries: { path: string; toolId: ToolId; libraryId?: string }[],
     source: string,
   ) {
     for (const entry of entries) {
+      const candidate = await this.inspect(entry.path)
       this.records.push({
         id: randomUUID(),
         toolId: entry.toolId,
         path: entry.path,
         source,
         hashes: await this.hashes(entry.path),
+        skillName: candidate.name,
+        metadataName: candidate.metadataName,
         ...(entry.libraryId ? { libraryId: entry.libraryId } : {}),
       })
     }
@@ -614,6 +906,19 @@ export class SkillStore {
   async uninstall(id: string) {
     const record = this.records.find((r) => r.id === id)
     if (!record) throw new Error('仅支持卸载本工具安装的 Skill')
+    try {
+      await fs.lstat(record.path)
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+      this.records = this.records.filter((item) => item.id !== id)
+      try {
+        await this.save()
+      } catch (saveError) {
+        this.records.push(record)
+        throw saveError
+      }
+      return
+    }
     if ((await fs.lstat(record.path)).isSymbolicLink())
       throw new Error('安装目录已变为链接，停止卸载')
     // Project-level installs are not part of the user-level scan, so build

@@ -122,8 +122,9 @@ ${activeProjectPath}`,
   const collectSkill = async (skill: Skill, compatibility: Compatibility) => {
     setBusy(true)
     try {
-      await window.skills.addToLibrary([skill.path], compatibility)
+      await window.skills.collectProjectSkill(skill.path, compatibility)
       await rescan()
+      await workspace.refresh()
       toast.success(`已收入中央仓库：${skill.name}`)
     } catch (e) {
       toast.error(cleanError(e))
@@ -157,13 +158,34 @@ ${skill.path}
     }
   }
 
+  const syncToLibrary = async (skill: Skill) => {
+    const ok = await confirm({
+      title: `同步到主仓库：${skill.name}？`,
+      description: `将用项目中的当前内容覆盖主仓库旧版本，包括文件新增、修改和删除。其他 Agent 副本不会自动更新。\n\n${skill.path}`,
+      confirmText: '确认同步',
+      destructive: true,
+    })
+    if (!ok) return
+    setBusy(true)
+    try {
+      await window.skills.projectSyncToLibrary(skill.path)
+      await workspace.refresh()
+      toast.success(`已同步到主仓库：${skill.name}`)
+    } catch (e) {
+      toast.error(cleanError(e))
+    } finally {
+      setBusy(false)
+    }
+  }
+
   /** Re-deploys the current library content over a tracked project copy. */
   const updateFromLibrary = async (skill: Skill) => {
     if (!skill.libraryId) return
     setBusy(true)
     try {
-      const result = await window.skills.deployUpdate(skill.libraryId)
+      const result = await window.skills.deployUpdate(skill.libraryId, [], [skill.path])
       await rescan()
+      await workspace.refresh()
       toast.success(
         `已从仓库更新：${skill.name}（${result.updated.length} 个副本同步${result.skipped.length ? `，${result.skipped.length} 个跳过` : ''}）`,
       )
@@ -234,6 +256,7 @@ ${skill.path}
                   onView={(skill) => void openViewer(skill)}
                   onCollect={(skill) => setCollecting(skill)}
                   onUpdate={(skill) => void updateFromLibrary(skill)}
+                  onSync={(skill) => void syncToLibrary(skill)}
                   onDelete={(skill) => void removeSkill(skill)}
                 />
               ))}
@@ -314,6 +337,7 @@ function ToolSection({
   onView,
   onCollect,
   onUpdate,
+  onSync,
   onDelete,
 }: {
   tool: ProjectToolScan
@@ -321,6 +345,7 @@ function ToolSection({
   onView: (skill: Skill) => void
   onCollect: (skill: Skill) => void
   onUpdate: (skill: Skill) => void
+  onSync: (skill: Skill) => void
   onDelete: (skill: Skill) => void
 }) {
   return (
@@ -350,7 +375,7 @@ function ToolSection({
                 <Button variant="ghost" size="sm" disabled={busy} onClick={() => onView(skill)}>
                   查看
                 </Button>
-                {skill.libraryId ? (
+                {skill.libraryId && (
                   <Button
                     variant="outline"
                     size="sm"
@@ -360,7 +385,19 @@ function ToolSection({
                   >
                     从仓库更新
                   </Button>
-                ) : (
+                )}
+                {skill.libraryId && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={busy}
+                    title="用此项目副本覆盖主仓库内容"
+                    onClick={() => onSync(skill)}
+                  >
+                    同步到主仓库
+                  </Button>
+                )}
+                {!skill.libraryId && (
                   <Button
                     variant="outline"
                     size="sm"

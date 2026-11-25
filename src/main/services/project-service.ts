@@ -3,7 +3,7 @@ import path from 'node:path'
 import { PROJECT_TOOLS } from '../adapters/project-paths'
 import { discoverSkills } from './skill-parser'
 import { getSkillDetail, readSkillFile, writeSkillFile } from './skill-browser'
-import type { ProjectScan, Skill, SkillDetail } from '../../shared/types'
+import type { Compatibility, ProjectScan, Skill, SkillDetail } from '../../shared/types'
 
 /**
  * Manages a temporarily selected project: scans the Agent skill directories
@@ -15,6 +15,12 @@ export class ProjectService {
   constructor(
     private readonly registerSource: (path: string, source: string) => void,
     private readonly resolveLink: (absPath: string) => { managed: boolean; libraryId?: string },
+    private readonly collect: (
+      absPath: string,
+      toolId: Exclude<Skill['toolId'], 'library'>,
+      compatibility: Compatibility,
+    ) => Promise<void>,
+    private readonly sync: (skill: Skill) => Promise<void>,
   ) {}
 
   async scan(projectPath: unknown): Promise<ProjectScan> {
@@ -70,6 +76,16 @@ export class ProjectService {
       for (const skill of tool.skills)
         if (skill.path === resolved) return { ...skill, toolId: tool.toolId }
     throw new Error('Skill 已不在扫描结果中，请重新选择项目文件夹')
+  }
+
+  async collectSkill(absPath: unknown, compatibility: Compatibility): Promise<void> {
+    const skill = this.registered(absPath)
+    if (skill.toolId === 'library') throw new Error('无效的工具归属')
+    await this.collect(skill.path, skill.toolId, compatibility)
+  }
+
+  syncToLibrary(absPath: unknown): Promise<void> {
+    return this.sync(this.registered(absPath))
   }
 
   browse(absPath: unknown): Promise<SkillDetail> {

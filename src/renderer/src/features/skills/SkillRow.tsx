@@ -46,8 +46,10 @@ interface Props {
   remove: () => void
   copy: () => void
   compatibility: (value: Compatibility) => void
-  /** Deploys the current library content to every linked installation. */
+  /** Previews and deploys the current library content. */
   deploy: () => void
+  /** Overwrites the associated library entry with this Agent copy. */
+  sync: () => void
 }
 export function SkillRow({
   grid,
@@ -70,6 +72,7 @@ export function SkillRow({
   copy,
   compatibility,
   deploy,
+  sync,
 }: Props) {
   const central = skill.toolId === 'library'
   const conflict = available && !selectable
@@ -274,11 +277,18 @@ export function SkillRow({
                 复制到其他工具
               </DropdownMenuItem>
             )}
-            {central && installed.some((i) => i.libraryId === skill.id) && (
+            {central ? (
               <DropdownMenuItem onClick={deploy}>
                 <RefreshCw />
                 下发更新到工具
               </DropdownMenuItem>
+            ) : (
+              skill.libraryId && (
+                <DropdownMenuItem onClick={sync}>
+                  <RefreshCw />
+                  同步到主仓库
+                </DropdownMenuItem>
+              )
             )}
             <DropdownMenuSeparator />
             <DropdownMenuItem

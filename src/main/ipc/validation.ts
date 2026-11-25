@@ -5,6 +5,19 @@ export function assertCompatibility(value: unknown): asserts value is Compatibil
   if (!isCompatibility(value)) throw new Error('无效的适用工具')
 }
 
+export function assertPaths(value: unknown, message: string): asserts value is string[] {
+  if (
+    !Array.isArray(value) ||
+    value.some((p) => typeof p !== 'string' || !p.trim()) ||
+    new Set(value).size !== value.length
+  )
+    throw new Error(message)
+}
+
+export function assertOverwritePaths(value: unknown): asserts value is string[] {
+  assertPaths(value, '无效的覆盖目标')
+}
+
 export function assertToolIds(value: unknown): asserts value is ToolId[] {
   if (
     !Array.isArray(value) ||

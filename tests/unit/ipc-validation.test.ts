@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import {
   assertCompatibility,
+  assertOverwritePaths,
   assertProjectSources,
   assertToolIds,
 } from '../../src/main/ipc/validation'
@@ -37,6 +38,13 @@ test('IPC project install sources accept whitelisted or library paths', () => {
   assert.doesNotThrow(() => assertProjectSources(['/picked', '/library/skill'], known))
   for (const value of [null, undefined, 'repo', [], [5], [''], ['D:/任意路径']])
     assert.throws(() => assertProjectSources(value, known), /请先选择安装来源/)
+})
+
+test('IPC overwrite targets require unique nonempty paths', () => {
+  assert.doesNotThrow(() => assertOverwritePaths([]))
+  assert.doesNotThrow(() => assertOverwritePaths(['C:/skills/review']))
+  for (const value of [null, undefined, 'C:/skills/review', [5], [''], ['a', 'a']])
+    assert.throws(() => assertOverwritePaths(value), /无效的覆盖目标/)
 })
 
 test('each IPC API method has a unique channel', () => {
